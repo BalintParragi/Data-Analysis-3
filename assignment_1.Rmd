@@ -1,5 +1,5 @@
 ---
-title: "assignment_1"
+title: "Assignment 1"
 author: "Balint Parragi"
 date: '`r Sys.Date()`'
 output: html_document
@@ -9,4 +9,84 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r,include=FALSE}
+library(tidyverse)
+library(fixest)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(usdata)
+```
+
+```{css, echo=FALSE}
+h1, h2, h3 , h4 {
+  text-align: center;
+  font-weight: bold;
+}
+```
+
+# __Predicting hourly wages of cooks__
+
+- Target variable is `earn_hour`: hourly wage
+- Predictors can be:
+  + Quantitative: `age`, number of `own children`
+  + Categorical: `sex`, `race` and `ethnicity`, `state` of residence, highest `grade` completed, `marital status`, `presence of children`, `citizenship`, `industry classificaton`, `employment class`, `union membership`, and `employment status`
+- Some variables can be redundant (i.e the month of the interview), and some categorical variables have many categories that increases the complexity of the models rapidly (i.e `state` of residence with `r length(levels(cps_cooks$state_long))` unique values)
+
+
+
+
+```{r, include=FALSE}
+cps <- read.csv("https://osf.io/4ay9x/download", stringsAsFactors = TRUE) %>% data.table()
+
+cps_cooks <- cps %>% 
+  filter(occ2012=="4020") %>% 
+  mutate(state_long = as.factor(abbr2state(stfips)),
+         earn_hour = earnwke/uhours,
+         grade92 = as.factor(grade92),
+         race = as.factor(race),
+         ethnic = as.factor(ethnic),
+         sex = as.factor(sex),
+         marital = as.factor(marital),
+         chldpres = as.factor(chldpres)
+         ) %>% 
+  select(-c(weight,hhid))
+
+#Note to self about variables (not included in the report):
+
+#X:unique ID; hhid: household id
+#intmonth: interview calendar month
+#sex: male 1
+#chldpres: presence of own children (categorical)
+#grade92: highest grade completed
+#prcitshp: citizenship
+#class: employment class
+#earnwke: edited or computed earnings per week
+#uhours: how many hours ... usually work per week
+#ind02: industry classification code
+#unionmme: member of union?
+#lfsr94: employment status (working, searching, etc.)
+```
+
+
+```{r}
+# Models - OLS regressions
+feols(earn_hour ~ age + sex, data = cps_cooks)
+feols(earn_hour ~ age + sex + state_long + lfsr94 , data = cps_cooks,vcov = 'hetero')
+
+feols(earn_hour ~ intmonth,data=cps_cooks)
+```
+
+```{r}
+# Evaluation, comparison
+output <- data.frame(
+  model   = c(),
+  `N vars`   = c(),
+  `N coeff` = c(),
+  `RMSE full` = c(),
+  `RMSE cv` = c(),
+  `BIC full` = c(),
+)
+
+```
 

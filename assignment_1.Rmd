@@ -16,6 +16,8 @@ library(data.table)
 library(dplyr)
 library(ggplot2)
 library(usdata)
+library(caret)
+library(kableExtra)
 ```
 
 ```{css, echo=FALSE}
@@ -25,13 +27,14 @@ h1, h2, h3 , h4 {
 }
 ```
 
-# __Predicting hourly wages of cooks__
+# __Predicting hourly wages of **cooks**__
 
 - Target variable is `earn_hour`: hourly wage
+- Selected occupation: cooks (id: $4020$)
 - Predictors can be:
   + Quantitative: `age`, number of `own children`
   + Categorical: `sex`, `race` and `ethnicity`, `state` of residence, highest `grade` completed, `marital status`, `presence of children`, `citizenship`, `industry classificaton`, `employment class`, `union membership`, and `employment status`
-- Some variables can be redundant (i.e the month of the interview), and some categorical variables have many categories that increases the complexity of the models rapidly (i.e `state` of residence with `r length(levels(cps_cooks$state_long))` unique values)
+- Some variables can be redundant (i.e the month of the interview), some have a lot of `NA`-values (i.e. `ethnicity`),  and some categorical variables have many categories that increases the complexity of the models rapidly (i.e `state` of residence with `r length(levels(cps_cooks$state_long))` unique values)
 
 
 
@@ -48,7 +51,9 @@ cps_cooks <- cps %>%
          ethnic = as.factor(ethnic),
          sex = as.factor(sex),
          marital = as.factor(marital),
-         chldpres = as.factor(chldpres)
+         chldpres = as.factor(chldpres),
+         age_sq = age^2,
+         uhours_sq = uhours^2
          ) %>% 
   select(-c(weight,hhid))
 
@@ -68,25 +73,108 @@ cps_cooks <- cps %>%
 #lfsr94: employment status (working, searching, etc.)
 ```
 
-
 ```{r}
+ggplot(cps_cooks,aes(x = earn_hour,fill=grade92))+
+  geom_histogram()
+
+cps_cooks <- cps_cooks %>% 
+  group_by(state_long) %>% 
+  mutate(earn_hour_mean = mean(earn_hour,na.rm=T),
+         stfips_c = as.character(stfips))
+
+ggplot(cps_cooks,aes(x = uhours,y = earnwke,color=sex))+
+  geom_point()
+
+
+ggplot(cps_cooks,aes(x = age, y = earn_hour,color = unionmme))+
+  geom_point()
+
+ggplot(cps_cooks,aes(x = ownchild, y = earn_hour,color = unionmme))+
+  geom_point()
+
+ggplot(cps_cooks,aes(x = grade92,y=earn_hour))+
+  geom_boxplot()
+
+ggplot(cps_cooks,aes(x = prcitshp,y = earn_hour))+
+  geom_boxplot()
+
+ggplot(cps_cooks,aes(x = sex,y = earn_hour))+
+  geom_boxplot()
+
+teszt <- cps_cooks %>% 
+  select(stfips_c,earn_hour_mean) %>% 
+  unique()
+ggplot(teszt,aes(x = reorder(stfips_c,-earn_hour_mean),
+                     y=earn_hour_mean,group=stfips_c))+
+  geom_bar(stat = "identity")
+```
+
+```{r, include=FALSE}
 # Models - OLS regressions
-feols(earn_hour ~ age + sex, data = cps_cooks)
-feols(earn_hour ~ age + sex + state_long + lfsr94 , data = cps_cooks,vcov = 'hetero')
+model1 <- as.formula(earn_hour ~ age + sex)
+model2 <- as.formula(earn_hour ~ age + age_sq + sex + uhours + grade92)
+model3 <- as.formula(earn_hour ~ age + age_sq + sex + uhours + grade92 + race + prcitshp + class + unionmme + state_long +lfsr94)
+model4 <- as.formula(earn_hour ~ age + age_sq + sex + uhours + grade92 + race + marital + chldpres + prcitshp + ind02 + class + unionmme + state_long + lfsr94)
 
-feols(earn_hour ~ intmonth,data=cps_cooks)
+reg1 <- feols(model1, data = cps_cooks,vcov = 'hetero')
+reg2 <- feols(model2, data = cps_cooks,vcov = 'hetero')
+reg3 <- feols(model3, data = cps_cooks,vcov = 'hetero')
+reg4 <- feols(model4, data = cps_cooks,vcov = 'hetero')
+
+k <- 5
+set.seed(20230120)
+cv1 <- train(model1, cps_cooks, method = 'lm', trControl = trainControl(method = 'cv', number = k))
+
+set.seed(20230120)
+cv2 <- train(model2, cps_cooks, method = 'lm', trControl = trainControl(method = 'cv', number = k))
+set.seed(20230120)
+cv3 <- train(model3, cps_cooks, method = 'lm', trControl = trainControl(method = 'cv', number = k), na.action = 'na.omit')
+set.seed(20230120)
+cv4 <- train(model4, cps_cooks, method = 'lm', trControl = trainControl(method = 'cv', number = k), na.action = 'na.omit')
+
+cv <- c('cv1', 'cv2', 'cv3', 'cv4')
+rmse_cv_dt <- c()
+cv_mat <- data.frame(rbind(cv1$resample[4], 'Average'))
+
+for(i in 1:length(cv)){
+  rmse_cv_dt[i] <- sqrt(mean(get(cv[i])$resample[[1]]^2,na.rm=TRUE))
+  cv_col <- rbind(get(cv[i])$resample[1],rmse_cv_dt[i])
+  cv_mat <- cbind(cv_mat,cv_col)
+}
+colnames(cv_mat)<-c('Resample','Model1', 'Model2', 'Model3', 'Model4')
+```
+
+## Sanity check of coefficients
+
+## Model comparison
+
+```{r,echo=FALSE}
+# Evaluation, comparison
+output <- data.table(
+  Model   = c("Model1","Model2","Model3","Model4"),
+  #`N vars`   = c(""),
+  `N coeff` = c(length(reg1$coefficients),length(reg2$coefficients),length(reg3$coefficients),length(reg4$coefficients)),
+  `RMSE full` = round(c(sqrt(c(reg1$sigma2,reg2$sigma2,reg3$sigma2,reg4$sigma2))),digits = 4),
+  `RMSE cv` = round(as.numeric(cv_mat[which(cv_mat$Resample=="Average"),-1]),digits = 4),
+  `BIC full` = round(c(BIC(reg1,reg2,reg3,reg4)),digits = 0))
+#here a plot about model complexity and RMSE/BIC
+
+output %>% kable()
 ```
 
 ```{r}
-# Evaluation, comparison
-output <- data.frame(
-  model   = c(),
-  `N vars`   = c(),
-  `N coeff` = c(),
-  `RMSE full` = c(),
-  `RMSE cv` = c(),
-  `BIC full` = c(),
-)
 
+ggplot(output,aes(x = `N coeff`))+
+  geom_line(aes(y= `RMSE full`,color = "RMSE full"))+
+  geom_point(aes(y= `RMSE full`,color = "RMSE full"))+
+  geom_line(aes(y= `RMSE cv`,color = "RMSE cv"))+
+  geom_point(aes(y= `RMSE cv`,color = "RMSE cv"))+
+  geom_line(aes(y= `BIC full`/2300,color = "BIC full"))+
+  geom_point(aes(y= `BIC full`/2300,color = "BIC full"))+
+  labs(x = "Model complexity\n(number of coefficients estimated without the intercept)")+
+  theme_bw()+
+  theme(axis.title=element_text(size = 7.5),
+        axis.text=element_text(size = 7,color = "black"))+
+  scale_y_continuous(name = "RMSE\n",sec.axis = sec_axis(~.*2300, name="BIC\n"))+
+  scale_color_manual(name="",values = c("RMSE full" = "black", "RMSE cv" = "red","BIC full"="steelblue"))
 ```
-

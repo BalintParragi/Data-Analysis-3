@@ -1,8 +1,10 @@
 ---
 title: "Assignment 1"
-author: "Balint Parragi"
-date: '`r Sys.Date()`'
-output: html_document
+author: "Balint Parragi, `r Sys.Date()`"
+geometry: left=1cm,right=1cm,top=0cm,bottom=1cm
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -27,18 +29,6 @@ h1, h2, h3 , h4 {
 }
 ```
 
-# __Predicting hourly wages of **cooks**__
-
-- Target variable is `earn_hour`: hourly wage
-- Selected occupation: cooks (id: $4020$)
-- Predictors can be:
-  + Quantitative: `age`, number of `own children`
-  + Categorical: `sex`, `race` and `ethnicity`, `state` of residence, highest `grade` completed, `marital status`, `presence of children`, `citizenship`, `industry classificaton`, `employment class`, `union membership`, and `employment status`
-- Some variables can be redundant (i.e the month of the interview), some have a lot of `NA`-values (i.e. `ethnicity`),  and some categorical variables have many categories that increases the complexity of the models rapidly (i.e `state` of residence with `r length(levels(cps_cooks$state_long))` unique values)
-
-
-
-
 ```{r, include=FALSE}
 cps <- read.csv("https://osf.io/4ay9x/download", stringsAsFactors = TRUE) %>% data.table()
 
@@ -53,9 +43,11 @@ cps_cooks <- cps %>%
          marital = as.factor(marital),
          chldpres = as.factor(chldpres),
          age_sq = age^2,
-         uhours_sq = uhours^2
+         uhours_sq = uhours^2,
+         unionmme_dummy = ifelse(unionmme=="Yes",1,ifelse(unionmme=="No",0,NA)),
+         unioncov_dummy = ifelse(unioncov=="Yes",1,ifelse(unioncov=="No",0,NA))
          ) %>% 
-  select(-c(weight,hhid))
+  select(-c(weight,hhid,state))
 
 #Note to self about variables (not included in the report):
 
@@ -70,10 +62,22 @@ cps_cooks <- cps %>%
 #uhours: how many hours ... usually work per week
 #ind02: industry classification code
 #unionmme: member of union?
-#lfsr94: employment status (working, searching, etc.)
+#lfsr94: employment status (employed at work or employed-absent)
 ```
 
-```{r}
+# __Predicting hourly wages of **cooks**__
+
+## Data inspection
+
+- Target variable is `earn_hour`: hourly wage
+- Selected occupation: cooks (id: $4020$)
+- Predictors can be:
+  + Quantitative: `age`, number of `own children`
+  + Categorical: `sex`, `race` and `ethnicity`, `state` of residence, highest `grade` completed, `marital status`, `presence of children`, `citizenship`, `industry classificaton`, `employment class`, `union membership`, and `employment status`
+- Some variables can be redundant (i.e the month of the interview), some have a lot of `NA`-values (i.e. `ethnicity`),  and some categorical variables have many categories that increases the complexity of the models rapidly (i.e `state` of residence with `r length(levels(cps_cooks$state_long))` unique values, but it is not clear either - it has both character and numeric encoded values)
+  + Also, `unionmme` and `unioncov` are fairly the same, there is no need for both: all Yes values in the former are `NA` in the latter, and the latter has only very a few (`r sum(cps_cooks$unioncov_dummy,na.rm = T)`) Yes values (which are all No in the former)
+
+```{r,include=FALSE}
 ggplot(cps_cooks,aes(x = earn_hour,fill=grade92))+
   geom_histogram()
 
@@ -109,22 +113,37 @@ ggplot(teszt,aes(x = reorder(stfips_c,-earn_hour_mean),
   geom_bar(stat = "identity")
 ```
 
+## Models and explanatory variables
+
+Dependent variable is hourly earnings in all specifications.
+
+1. Model 1: $age + sex$
+2. Model 2: Model 1 $+ age^2 + uhours + grade92$
+3. Model 3: Model 2 $+sex*grade92 + race + prcitshp + ownchild + state + lfsr94$
+4. Model 4: Model 3 $+uhours^2 + marital + unionmme+class + chldpres$
+
+The primary principles of my choice of predictors:
+
+- Wage generally relates to the person's age, sex, education and number of hours worked (if the firm appreciates more work/full-time employees more)
+- Additionally, marginal effect of education can be differ between man and women, as well race, citizenship and geographic location (state), employment status of the worker and number of children can all matter to some extent
+- All other variables can be more or less relevant, but might not be especially important for **cooks**
+
 ```{r, include=FALSE}
 # Models - OLS regressions
 model1 <- as.formula(earn_hour ~ age + sex)
 model2 <- as.formula(earn_hour ~ age + age_sq + sex + uhours + grade92)
-model3 <- as.formula(earn_hour ~ age + age_sq + sex + uhours + grade92 + race + prcitshp + class + unionmme + state_long +lfsr94)
-model4 <- as.formula(earn_hour ~ age + age_sq + sex + uhours + grade92 + race + marital + chldpres + prcitshp + ind02 + class + unionmme + state_long + lfsr94)
+model3 <- as.formula(earn_hour ~ age + age_sq + sex + uhours + grade92 + sex*grade92 + race + prcitshp + ownchild + state_long +lfsr94)
+model4 <- as.formula(earn_hour ~ age + age_sq + sex + uhours + uhours_sq + grade92 + race + marital + chldpres + ownchild + prcitshp + class + unionmme + state_long + lfsr94)
 
 reg1 <- feols(model1, data = cps_cooks,vcov = 'hetero')
 reg2 <- feols(model2, data = cps_cooks,vcov = 'hetero')
 reg3 <- feols(model3, data = cps_cooks,vcov = 'hetero')
 reg4 <- feols(model4, data = cps_cooks,vcov = 'hetero')
 
+#Number of cross-validations: k
 k <- 5
 set.seed(20230120)
 cv1 <- train(model1, cps_cooks, method = 'lm', trControl = trainControl(method = 'cv', number = k))
-
 set.seed(20230120)
 cv2 <- train(model2, cps_cooks, method = 'lm', trControl = trainControl(method = 'cv', number = k))
 set.seed(20230120)
@@ -146,35 +165,48 @@ colnames(cv_mat)<-c('Resample','Model1', 'Model2', 'Model3', 'Model4')
 
 ## Sanity check of coefficients
 
+Quick note on the significant coefficients:
+
+- Positive: age, higher education level (baseline: lowest level), union membership (baseline: not a member), employed-at-work (baseline: employed-absent), some states i.e New York, DC (compared to baseline: Alabama)
+- Negative: sex (baseline: male), race (white-asian, white-hawaiian, white-black-american indian compared to baseline: white), many industries (compared to baseline: alcoholic beverages, merchant wholesalers)
+
+Verdict: (significant) coefficients meet my expectations, there is no counterintuitive relationship
+
 ## Model comparison
 
 ```{r,echo=FALSE}
 # Evaluation, comparison
 output <- data.table(
   Model   = c("Model1","Model2","Model3","Model4"),
-  #`N vars`   = c(""),
   `N coeff` = c(length(reg1$coefficients),length(reg2$coefficients),length(reg3$coefficients),length(reg4$coefficients)),
   `RMSE full` = round(c(sqrt(c(reg1$sigma2,reg2$sigma2,reg3$sigma2,reg4$sigma2))),digits = 4),
   `RMSE cv` = round(as.numeric(cv_mat[which(cv_mat$Resample=="Average"),-1]),digits = 4),
   `BIC full` = round(c(BIC(reg1,reg2,reg3,reg4)),digits = 0))
-#here a plot about model complexity and RMSE/BIC
-
-output %>% kable()
+output %>% kable(align = "c")%>% kable_styling(latex_options = c("striped", "scale_down"),full_width=FALSE,position = "left")
 ```
 
-```{r}
+## Model complexity and performance
 
+Complexity can be either measured by the number of coefficients estimated or the number of variables appearing in the regression. I use the former, and compare the models by *RMSE in the full sample*, *cross-validated RMSE* (cv) and *BIC in the full sample*. Full RMSE obviously decreases (non-increasing) as we add more variables, this is not a good measure of model performance. Cross-validated (trained-tested-averaged) RMSE now tells more, as it is higher for Model 3 and 4 - during the training period (due to the many variables), the procedure overfit the data, so the test data does not fit it well. But Model 2 now outperforms Model 1 as it produces a better fit for the test data. BIC on the other hand suggests that the simplest model (Model 1) has the lowest BIC value, but the difference between this and the BIC of Model 2 is negligible.
+
+```{r,echo=FALSE,fig.align='center',fig.height=4,fig.width=6}
+#Plot of model complexity
 ggplot(output,aes(x = `N coeff`))+
-  geom_line(aes(y= `RMSE full`,color = "RMSE full"))+
-  geom_point(aes(y= `RMSE full`,color = "RMSE full"))+
-  geom_line(aes(y= `RMSE cv`,color = "RMSE cv"))+
-  geom_point(aes(y= `RMSE cv`,color = "RMSE cv"))+
-  geom_line(aes(y= `BIC full`/2300,color = "BIC full"))+
-  geom_point(aes(y= `BIC full`/2300,color = "BIC full"))+
+  geom_line(aes(y= `RMSE full`,color = "RMSE full"),size=1.25)+
+  geom_point(aes(y= `RMSE full`,color = "RMSE full"),size=2)+
+  geom_line(aes(y= `RMSE cv`,color = "RMSE cv"),size=1.25)+
+  geom_point(aes(y= `RMSE cv`,color = "RMSE cv"),size=2)+
+  geom_line(aes(y= `BIC full`/2300,color = "BIC full"),size=1.25)+
+  geom_point(aes(y= `BIC full`/2300,color = "BIC full"),size=2)+
   labs(x = "Model complexity\n(number of coefficients estimated without the intercept)")+
   theme_bw()+
-  theme(axis.title=element_text(size = 7.5),
-        axis.text=element_text(size = 7,color = "black"))+
+  theme(axis.text.y.right= element_text(colour = "steelblue"),
+        axis.title.y.right= element_text(colour = "steelblue",size = 15),
+        axis.title=element_text(size = 15),
+        axis.text=element_text(size = 12,color = "black"),
+        legend.text = element_text(size = 11),
+        legend.title = element_blank(),
+        legend.position = c(0.1,0.9))+
   scale_y_continuous(name = "RMSE\n",sec.axis = sec_axis(~.*2300, name="BIC\n"))+
   scale_color_manual(name="",values = c("RMSE full" = "black", "RMSE cv" = "red","BIC full"="steelblue"))
 ```

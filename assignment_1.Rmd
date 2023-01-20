@@ -1,14 +1,15 @@
 ---
 title: "Assignment 1"
 author: "Balint Parragi, `r Sys.Date()`"
-geometry: left=1cm,right=1cm,top=0cm,bottom=1cm
+geometry: left=1cm,right=1cm,top=1.5cm,bottom=1.5cm
+fontsize: 8pt
 output:
   pdf_document: default
   html_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE,message = FALSE)
 ```
 
 ```{r,include=FALSE}
@@ -20,6 +21,8 @@ library(ggplot2)
 library(usdata)
 library(caret)
 library(kableExtra)
+library(gridExtra)
+library(grid)
 ```
 
 ```{css, echo=FALSE}
@@ -33,7 +36,7 @@ h1, h2, h3 , h4 {
 cps <- read.csv("https://osf.io/4ay9x/download", stringsAsFactors = TRUE) %>% data.table()
 
 cps_cooks <- cps %>% 
-  filter(occ2012=="4020") %>% 
+  filter(occ2012=="4020") %>% #cooks
   mutate(state_long = as.factor(abbr2state(stfips)),
          earn_hour = earnwke/uhours,
          grade92 = as.factor(grade92),
@@ -69,64 +72,115 @@ cps_cooks <- cps %>%
 
 ## Data inspection
 
-- Target variable is `earn_hour`: hourly wage
+- Target variable is `earn_hour`: hourly wage from the **CPS earnings dataset**
 - Selected occupation: cooks (id: $4020$)
-- Predictors can be:
+- Predictors can be either:
   + Quantitative: `age`, number of `own children`
   + Categorical: `sex`, `race` and `ethnicity`, `state` of residence, highest `grade` completed, `marital status`, `presence of children`, `citizenship`, `industry classificaton`, `employment class`, `union membership`, and `employment status`
 - Some variables can be redundant (i.e the month of the interview), some have a lot of `NA`-values (i.e. `ethnicity`),  and some categorical variables have many categories that increases the complexity of the models rapidly (i.e `state` of residence with `r length(levels(cps_cooks$state_long))` unique values, but it is not clear either - it has both character and numeric encoded values)
-  + Also, `unionmme` and `unioncov` are fairly the same, there is no need for both: all Yes values in the former are `NA` in the latter, and the latter has only very a few (`r sum(cps_cooks$unioncov_dummy,na.rm = T)`) Yes values (which are all No in the former)
+  + Also, `unionmme` and `unioncov` are fairly the same, there is no need for both: all *Yes* values in the former are `NA` in the latter, and the latter has only very a few (`r sum(cps_cooks$unioncov_dummy,na.rm = T)`) *Yes* values (which are all *No*-s in the former)
 
-```{r,include=FALSE}
-ggplot(cps_cooks,aes(x = earn_hour,fill=grade92))+
-  geom_histogram()
+### Exploratory figures
 
-cps_cooks <- cps_cooks %>% 
-  group_by(state_long) %>% 
-  mutate(earn_hour_mean = mean(earn_hour,na.rm=T),
-         stfips_c = as.character(stfips))
+Most variables are categorical, so illustrating their relationship with hourly wages is easiest via boxplots. Main takeaways:
 
-ggplot(cps_cooks,aes(x = uhours,y = earnwke,color=sex))+
-  geom_point()
+- Number of hours worked per week might have a negative quadratic relationship with earnings. The spikes at 20,30, and especially at 40 hours are not surprising.
+- Age might be a good predictor of income, but the effect is small.
+- There very few union members.
 
+```{r,echo=FALSE,fig.align='center',fig.height=3.5,fig.width=6}
+#Some exploratory plots
+p1<- ggplot(cps_cooks,aes(x = uhours,y = earn_hour,color=sex))+
+  geom_point()+
+  labs(x = "Hours usually worked per week",y="Hourly wage")+
+  theme_bw()+
+  theme(axis.title = element_text(size = 9),
+        axis.text = element_text(size = 8,color="black"),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 7),
+        legend.position = c(0.8,0.8))+
+  scale_y_continuous(labels = scales::dollar_format())+
+  scale_color_manual(name="Sex",values=c("1"="steelblue","2"="red"),labels=c("1"="Male","2"="Female"))
 
-ggplot(cps_cooks,aes(x = age, y = earn_hour,color = unionmme))+
-  geom_point()
+p2 <- ggplot(cps_cooks,aes(x = age, y = earn_hour,color = unionmme))+
+  geom_point()+
+  labs(x = "Age",y="Hourly wage")+
+  theme_bw()+
+  theme(axis.title = element_text(size = 9),
+        axis.text = element_text(size = 8,color="black"),
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 7),
+        legend.position = c(0.8,0.8))+
+  scale_y_continuous(labels = scales::dollar_format())+
+  scale_color_manual(name="Union\nmembership",values=c("black","orange"))
 
-ggplot(cps_cooks,aes(x = ownchild, y = earn_hour,color = unionmme))+
-  geom_point()
+#Boxplots
+b1 <- ggplot(cps_cooks,aes(x = grade92,y=earn_hour))+
+  geom_boxplot()+
+  labs(x = "Education level", y="Hourly wage")+
+  theme_bw()+
+  theme(axis.title = element_text(size = 9),
+        axis.text = element_text(size = 8,color="black"))+
+  scale_y_continuous(labels = scales::dollar_format())+
+  coord_cartesian(ylim=c(NA,50))
 
-ggplot(cps_cooks,aes(x = grade92,y=earn_hour))+
-  geom_boxplot()
+b2 <- ggplot(cps_cooks,aes(x = prcitshp,y=earn_hour))+
+  geom_boxplot()+
+  labs(x = "Citizenship", y="Hourly wages")+
+  theme_bw()+
+  theme(axis.title = element_text(size = 9),
+        axis.text = element_text(size = 7.5,color="black"))+
+  scale_y_continuous(labels = scales::dollar_format())+
+  scale_x_discrete(labels=c("FB, not US","FB, US","N, abroad","N, PR/UM","N, US"))+
+  coord_cartesian(ylim=c(NA,50))
 
-ggplot(cps_cooks,aes(x = prcitshp,y = earn_hour))+
-  geom_boxplot()
+b3 <- ggplot(cps_cooks,aes(x = sex,y=earn_hour))+
+  geom_boxplot()+
+  labs(x = "Sex", y="Hourly wage")+
+  theme_bw()+
+  theme(axis.title = element_text(size = 9),
+        axis.text = element_text(size = 8,color="black"))+
+  scale_y_continuous(labels = scales::dollar_format())+
+  scale_x_discrete(labels = c("Male","Female"))+
+  coord_cartesian(ylim=c(NA,50))
 
-ggplot(cps_cooks,aes(x = sex,y = earn_hour))+
-  geom_boxplot()
+b4 <- ggplot(cps_cooks,aes(x = class,y=earn_hour))+
+  geom_boxplot()+
+  labs(x = "Employment class", y="Hourly wage")+
+  theme_bw()+
+  theme(axis.title = element_text(size = 9),
+        axis.text = element_text(size = 7.5,color="black"))+
+  scale_y_continuous(labels = scales::dollar_format())+
+  scale_x_discrete(labels = c("Fed. Gov.","Local\nGov.","State\nGov.","Priv.\nFor Profit","Pirv.\nNonprofit"))+
+  coord_cartesian(ylim=c(NA,50))
 
-teszt <- cps_cooks %>% 
-  select(stfips_c,earn_hour_mean) %>% 
-  unique()
-ggplot(teszt,aes(x = reorder(stfips_c,-earn_hour_mean),
-                     y=earn_hour_mean,group=stfips_c))+
-  geom_bar(stat = "identity")
+grid.arrange(p1,p2,nrow=1,ncol=2)
+```
+
+- People among the highest education levels seem to earn more on average.
+- Native, US citizens tend to have the lowest average earnings, which might be surprising.
+- Men earn more than women, but the difference is very small.
+- There are subtle differences between employment classes.
+
+```{r,echo=FALSE,fig.align='center',fig.height=3.75,fig.width=6}
+grid.arrange(b1,b2,b3,b4,nrow=2,ncol=2,
+             bottom = textGrob("Observations above $50 are cut off from the figure.",hjust = 0,x=0.6,gp = gpar(fontsize = 7)))
 ```
 
 ## Models and explanatory variables
 
-Dependent variable is hourly earnings in all specifications.
+Dependent variable is hourly earnings in all specifications, the models are all OLS.
 
 1. Model 1: $age + sex$
 2. Model 2: Model 1 $+ age^2 + uhours + grade92$
-3. Model 3: Model 2 $+sex*grade92 + race + prcitshp + ownchild + state + lfsr94$
+3. Model 3: Model 2 $+sex\times grade92 + race + prcitshp + ownchild + state + lfsr94$
 4. Model 4: Model 3 $+uhours^2 + marital + unionmme+class + chldpres$
 
 The primary principles of my choice of predictors:
 
-- Wage generally relates to the person's age, sex, education and number of hours worked (if the firm appreciates more work/full-time employees more)
-- Additionally, marginal effect of education can be differ between man and women, as well race, citizenship and geographic location (state), employment status of the worker and number of children can all matter to some extent
-- All other variables can be more or less relevant, but might not be especially important for **cooks**
+- Wage generally relates to the person's age, sex (if there is discrimination among sexes), education and number of hours worked (if the firm appreciates more work/full-time employees more)
+- Additionally, the marginal effect of education can differ between men and women. Moreover, race, citizenship and geographic location (state), employment status of the worker and number of children can all matter to some extent when predicting income
+- All other variables might be less relevant, or not especially important in the case of **cooks**
 
 ```{r, include=FALSE}
 # Models - OLS regressions
@@ -168,9 +222,9 @@ colnames(cv_mat)<-c('Resample','Model1', 'Model2', 'Model3', 'Model4')
 Quick note on the significant coefficients:
 
 - Positive: age, higher education level (baseline: lowest level), union membership (baseline: not a member), employed-at-work (baseline: employed-absent), some states i.e New York, DC (compared to baseline: Alabama)
-- Negative: sex (baseline: male), race (white-asian, white-hawaiian, white-black-american indian compared to baseline: white), many industries (compared to baseline: alcoholic beverages, merchant wholesalers)
+- Negative: sex (baseline: male), race (white-asian, white-hawaiian, white/black/american-indian compared to baseline: white), many industries (compared to baseline: alcoholic beverages, merchant wholesalers)
 
-Verdict: (significant) coefficients meet my expectations, there is no counterintuitive relationship
+Verdict: (significant) coefficients meet the general economic expectations, there is no counterintuitive relationship
 
 ## Model comparison
 
@@ -182,14 +236,25 @@ output <- data.table(
   `RMSE full` = round(c(sqrt(c(reg1$sigma2,reg2$sigma2,reg3$sigma2,reg4$sigma2))),digits = 4),
   `RMSE cv` = round(as.numeric(cv_mat[which(cv_mat$Resample=="Average"),-1]),digits = 4),
   `BIC full` = round(c(BIC(reg1,reg2,reg3,reg4)),digits = 0))
-output %>% kable(align = "c")%>% kable_styling(latex_options = c("striped", "scale_down"),full_width=FALSE,position = "left")
+output %>% 
+  kable(align = "c")%>% 
+  kable_styling(latex_options = "hold_position",
+                full_width=FALSE,position = "center",font_size = 9)
 ```
 
 ## Model complexity and performance
 
-Complexity can be either measured by the number of coefficients estimated or the number of variables appearing in the regression. I use the former, and compare the models by *RMSE in the full sample*, *cross-validated RMSE* (cv) and *BIC in the full sample*. Full RMSE obviously decreases (non-increasing) as we add more variables, this is not a good measure of model performance. Cross-validated (trained-tested-averaged) RMSE now tells more, as it is higher for Model 3 and 4 - during the training period (due to the many variables), the procedure overfit the data, so the test data does not fit it well. But Model 2 now outperforms Model 1 as it produces a better fit for the test data. BIC on the other hand suggests that the simplest model (Model 1) has the lowest BIC value, but the difference between this and the BIC of Model 2 is negligible.
+Complexity can be either measured by the number of coefficients estimated or the number of variables appearing in the regression. I use the former metrics, and compare the models by *RMSE in the full sample*, *cross-validated RMSE* (cv) and *BIC in the full sample*. 
 
-```{r,echo=FALSE,fig.align='center',fig.height=4,fig.width=6}
+1. Full RMSE obviously decreases (non-increasing) as we add more variables, overall this is not a good measure of model performance. 
+2. Cross-validated (trained-tested-averaged) RMSE now tells more, as it is higher for Model 3 and 4 - during the training period (due to the many variables), the fitting procedure led to  an overfit in the data, so the test data does not fit the model well. But Model 2 now outperforms Model 1 as it produces a better fit for the test data.
+3. BIC, on the other hand, suggests that the simplest model (Model 1) has the lowest BIC value, but the difference between this and the BIC value of Model 2 is negligible.
+
+All in all, it appears that Model 1 and Model 2 outperform the more complex ones (those including interactions, squared elements, factors with many categories) with their simplicity. However, income can be affected by many aspects and dimensions, so it is hard to believe that only `age` and `sex` would matter, this is why I choose **Model 2**  - with the lowest cross-validated RMSE and with one of the lowest BIC values - as the best possible predictor of hourly income among these four models. Simple model, but also has some explanatory variables.
+
+Nevertheless, many extra things could be done to improve the analysis (unite different factor levels that are statistically identical, search for other similar occupations - i.e head chef - to merge with **cooks** so there would be more data, dealing with some unique outlier: 120$/hour income at age 18), but those are out of the scope of this analysis.
+
+```{r,echo=FALSE,fig.align='center',fig.height=3.75,fig.width=6}
 #Plot of model complexity
 ggplot(output,aes(x = `N coeff`))+
   geom_line(aes(y= `RMSE full`,color = "RMSE full"),size=1.25)+
@@ -204,9 +269,9 @@ ggplot(output,aes(x = `N coeff`))+
         axis.title.y.right= element_text(colour = "steelblue",size = 15),
         axis.title=element_text(size = 15),
         axis.text=element_text(size = 12,color = "black"),
-        legend.text = element_text(size = 11),
+        legend.text = element_text(size = 10),
         legend.title = element_blank(),
-        legend.position = c(0.1,0.9))+
+        legend.position = c(0.2,0.8))+
   scale_y_continuous(name = "RMSE\n",sec.axis = sec_axis(~.*2300, name="BIC\n"))+
   scale_color_manual(name="",values = c("RMSE full" = "black", "RMSE cv" = "red","BIC full"="steelblue"))
 ```

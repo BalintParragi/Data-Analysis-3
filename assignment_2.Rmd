@@ -1,0 +1,111 @@
+---
+title: "Assignment 2"
+author: "Balint Parragi, `r Sys.Date()`"
+geometry: left=1cm,right=1cm,top=1.5cm,bottom=1.5cm
+fontsize: 8pt
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE,message = FALSE)
+```
+
+```{r,include=FALSE}
+library(tidyverse)
+library(fixest)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(kableExtra)
+library(gridExtra)
+library(grid)
+```
+
+```{css, echo=FALSE}
+h1, h2, h3 , h4 {
+  text-align: center;
+  font-weight: bold;
+}
+```
+
+```{r, include=FALSE}
+listings <- fread("data/listings.csv",encoding = "UTF-8")
+#midsize apartments, 2-6 guests
+
+listings_clean <- listings %>% 
+  select(-c(id,listing_url,scrape_id,last_scraped,source,picture_url,host_url,host_thumbnail_url,host_picture_url,host_neighbourhood,neighbourhood_group_cleansed,calendar_updated,calendar_last_scraped,license)) %>% 
+  filter(room_type == "Entire home/apt",
+         accommodates >= 2 & accommodates <= 6) %>% 
+  mutate(price_usd = gsub(",","",price),
+         price_usd = as.numeric(gsub("\\$","",price_usd)),
+         bathrooms_shared = ifelse(str_detect(bathrooms_text,"shared|Shared"),1,0),
+         bathrooms = str_extract(bathrooms_text,"([0-9]*[.])?[0-9]+"),
+         bathrooms = ifelse(str_detect(bathrooms_text,"half|Half"),"0.5",ifelse(bathrooms_text=="","0",bathrooms)),
+         bathrooms = as.numeric(bathrooms),
+         neighbourhood_cleansed = gsub("\u009f","ü",neighbourhood_cleansed),
+         neighbourhood_cleansed = gsub("§","ß",neighbourhood_cleansed),
+         neighbourhood_cleansed = gsub("\u009a","ö",neighbourhood_cleansed),
+         neighbourhood_cleansed = gsub("\u008a","ä",neighbourhood_cleansed),
+         amenities = gsub('\\\"\"',"",amenities),
+         amenities = gsub("\\\\u00e9","é",amenities),
+         amenities = gsub("\\\\u00f6","ö",amenities),
+         amenities = gsub("\\\\u00fc","ü",amenities),
+         amenities = gsub("\\\\u00df","ß",amenities),
+         amenities = gsub("\\\\u00a0"," ",amenities),
+         amenities = gsub("\\\\u00e4","ä",amenities),
+         amenities = gsub("\\\\u2019","'",amenities),
+         amenities = gsub("\\\\u2013","-",amenities),
+         amenities = gsub("\\\\","″",amenities),
+         amenities = gsub("\\[","",amenities),
+         amenities = gsub("\\]","",amenities),
+         host_is_superhost = ifelse(host_is_superhost=="t",1,ifelse(host_is_superhost=="f",0,NA)),
+         host_has_profile_pic = ifelse(host_has_profile_pic=="t",1,ifelse(host_has_profile_pic=="f",0,NA)),
+         host_identity_verified = ifelse(host_identity_verified=="t",1,ifelse(host_identity_verified=="f",0,NA)),
+         has_availability = ifelse(has_availability=="t",1,ifelse(has_availability=="f",0,NA)))
+
+#amenities dummies
+x <- strsplit(as.character(listings_clean$amenities), ",")
+l <- lengths(x)+1 #adjust as one listing has no amenities at all
+m <- max(l)
+x <- t(sapply(x[as.logical(l)], function(a) c(a, rep("",m-length(a))))) %>% data.table()
+x <- x %>% 
+  mutate(across(where(is.character), str_trim)) %>% 
+  select(-last_col()) #empty column, needed the extra first that the listing with no amenities gets a row as well
+
+length(unique(x))
+t  <- Reduce(c,x) %>%
+  str_trim() %>%
+  unique() %>% 
+  data.table()
+
+x2 <- paste(x) %>% unique()
+class(x[1])
+teszt2 <- listings_clean[amenities == "",]
+teszt <- x[as.logical(l)]
+```
+
+# __Predicting Airbnb prices in small and medium-size apartments__
+
+## Data collection
+
+Data is from the <span style="text-decoration:underline">[Inside Airbnb site](http://insideairbnb.com/get-the-data.html)</span>, I selected the city of *Vienna* for the most recent time period available. The raw data consists of `r nrow(listings)` observations. After filtering for size (small and medium) and number of guests (2-6), and cleaning the data sufficiently, the sample size consists of `r nrow(listings_clean)` observations.
+
+
+
+
+## Data exploration
+
+```{r}
+
+```
+
+## Models and methods used
+
+The target variable is **nightly price** across all models.
+
+1. Model 1:
+2. Model 2:
+3. Model 3:

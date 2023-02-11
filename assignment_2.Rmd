@@ -76,7 +76,9 @@ listings_clean <- listings %>%
         ln_accommodates=log(accommodates) ,
         ln_accommodates_sq=log(accommodates)^2,
         ln_beds = log(beds),
-        ln_number_of_reviews = log(number_of_reviews+1)) %>% 
+        ln_bathrooms = log(bathrooms),
+        ln_number_of_reviews = log(number_of_reviews+1),
+        ln_price_usd = log(price_usd)) %>% 
   select(-c(room_type,bathrooms_text))
 
 #dig into amenities. After preprocessing, I try to group them as much as possible
@@ -142,6 +144,7 @@ listings_clean <- listings_clean %>%
     beds = ifelse(is.na(beds), accommodates, beds), #assume n_beds=n_accomodates
     f_minimum_nights=ifelse(is.na(f_minimum_nights),1, f_minimum_nights),
     ln_beds=ifelse(is.na(ln_beds),0, ln_beds),
+    ln_bathrooms=ifelse(ln_bathrooms==-Inf,0, ln_bathrooms),
     host_experience = ifelse(is.na(host_experience), median(host_experience, na.rm = T),host_experience),
     host_total_listings_count = ifelse(is.na(host_total_listings_count), median(host_total_listings_count, na.rm = T),host_total_listings_count),
     host_has_profile_pic=ifelse(is.na(host_has_profile_pic),0, host_has_profile_pic),
@@ -180,59 +183,117 @@ Based on these points, the following more important variables were dropped:
 - review scores measures, listing's number of days on the market, host response rate, host acceptance rate, bedrooms
 - some features needed imputed values - either with the median value, or if categorical, then by negative (false) value
 - number of `NA`-s were very low in the remaining features --> required little imputation
+-some variables could also be dropped from or united among amenities as they have high (0.6,0.7) correlation with each other, but at large samples this causes less severe problems. 
 
 Finally, the target variable (*price usd*) needed filtering as there were some massive outlier in the data. However, a threshold of 1000$ was sufficient, which resulted in the loss of less than 1% of the data.
 
+### Location
+
 ```{r,echo=FALSE,warning=FALSE,fig.align='center',fig.height=3.75,fig.width=6}
-ggplot(listings_clean,aes(x = f_neighbourhood_cleansed,y=price_usd))+
+plot_listings <- listings_clean %>% 
+  group_by(f_neighbourhood_cleansed) %>% 
+  mutate(avg_price_usd = mean(price_usd,na.rm=T),
+         count = n())
+
+ggplot(plot_listings,aes(x = reorder(f_neighbourhood_cleansed,-avg_price_usd),y=price_usd))+
   geom_boxplot()+
-  labs(x = "District", y="Price (USD)")+
+  geom_text(aes(y = max(price_usd)*1.05,label=count),size = 2.5)+
+  labs(x = "District", y="Price (USD)",caption = "Number of listings\nin each district in the upper part.")+
   theme_bw()+
   theme(axis.title = element_text(size = 9),
         axis.text = element_text(size = 7,color="black"),
-        axis.text.x = element_text(size = 7,color="black",angle=90))+
+        axis.text.x = element_text(size = 7,color="black",angle=90),
+        plot.caption = element_text(size = 7.5))+
   scale_y_continuous(labels = scales::dollar_format())
-
 ```
 
-Innere Stadt (first district) clearly stands out, it is much more expensive on average than any other districts in Vienna. Wieden (4th), Mariahilf (6th) and Neubau (7th) are also on top as they constitute the inner, historic part of the city, close to the canal and several sights.
+Using domain knowledge, I assume that location should be some of the most important factors in deciding the price. Unsurprisingly, Innere Stadt (first district) clearly stands out, it is much more expensive on average than any other districts in Vienna. Landstrasse (3rd), Wieden (4th), Josefstadt (8th) Mariahilf (6th) and Neubau (7th) are also on top as they constitute the inner, historic part of the city, close to the canal and several sights. Some others are on the shore of the Danube (Florisdorf, Leopoldstadt), which can come with better views. Also, Leopoldstadt contains the most observations, as it is both close to the Danube and to the center, ideal for people who are seeking entire apartments.
+
+### Prices
 
 ```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+h1 <- ggplot(listings_clean,aes(x = price_usd))+
+  geom_histogram()+
+  labs(x = "Distribution of prices (USD)",caption = "Observations above $1000 are removed.")+
+  theme_bw()+
+  theme(axis.title.x = element_text(size = 9),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 8,color="black"),
+        plot.caption = element_text(size = 7.5))+
+  scale_y_continuous(labels = scales::dollar_format())
+h2 <- ggplot(listings_clean,aes(x = ln_price_usd))+
+  geom_histogram()+
+  labs(x = "Distribution of prices (log)",caption = "Observations above $1000 are removed.")+
+  theme_bw()+
+  theme(axis.title.x = element_text(size = 9),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 8,color="black"),
+        plot.caption = element_text(size = 7.5))
 
-b1 <- ggplot(listings_clean,aes(x = host_total_listings_count, y = price_usd,color = as.factor(da_parking)))+
-  geom_point()+
-  labs(x = "Total listings of host",y="Price (USD)")+
-  theme_bw()+
-  theme(axis.title = element_text(size = 9),
-        axis.text = element_text(size = 8,color="black"),
-        legend.title = element_text(size = 8),
-        legend.text = element_text(size = 7))+
-  scale_y_continuous(labels = scales::dollar_format())+
-  scale_color_manual(name="Parking availability",labels=c("0"="No","1"="Yes"),
-                     values = c("red","steelblue"))
-b2 <- ggplot(listings_clean,aes(x = bathrooms, y = price_usd,color = as.factor(da_ac)))+
-  geom_point()+
-  labs(x = "Number of bathrooms",y="Price (USD)")+
-  theme_bw()+
-  theme(axis.title = element_text(size = 9),
-        axis.text = element_text(size = 8,color="black"),
-        legend.title = element_text(size = 8),
-        legend.text = element_text(size = 7))+
-  scale_y_continuous(labels = scales::dollar_format())+
-  scale_color_manual(name="Air-conditioning",labels=c("0"="No","1"="Yes"),
-                     values = c("red","steelblue"))
+grid.arrange(h1,h2,nrow=1,ncol=2)
+```
 
-b3 <- ggplot(listings_clean,aes(x = host_experience, y = price_usd,color = as.factor(da_smoking)))+
-  geom_point()+
-  labs(x = "Experience of hosts in days",y="Price (USD)")+
+Prices are as usual in the data: very skewed to the left, and mostly below 500 USD/night with a mean around `r mean(listings_clean$price_usd,na.rm=T)`. The log price plot shows a much clearer view, more resembling to normally distributed.
+
+### Accommodates
+
+```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+a1 <- ggplot(listings_clean,aes(x = as.factor(accommodates), y = price_usd,fill=as.factor(accommodates)))+
+  geom_boxplot()+
+  labs(x = "Accommodates",y="Price (USD)")+
   theme_bw()+
   theme(axis.title = element_text(size = 9),
         axis.text = element_text(size = 8,color="black"),
-        legend.title = element_text(size = 8),
-        legend.text = element_text(size = 7))+
+        legend.position = "none")+
   scale_y_continuous(labels = scales::dollar_format())+
-  scale_color_manual(name="Smoking",labels=c("0"="Not allowed","1"="Allowed"),
-                     values = c("red","steelblue"))
+  scale_fill_brewer(palette = "Paired")
+
+a2 <- ggplot(listings_clean,aes(x = as.factor(accommodates), y = ln_price_usd,fill=as.factor(accommodates)))+
+  geom_boxplot()+
+  labs(x = "Accommodates",y="Price (log)")+
+  theme_bw()+
+  theme(axis.title = element_text(size = 9),
+        axis.text = element_text(size = 8,color="black"),
+        legend.position = "none")+
+  scale_fill_brewer(palette = "Paired")
+
+grid.arrange(a1,a2,nrow=1,ncol=2)
+```
+
+Prices are increasing with number of accommodates, which is again not surprising. The nominal price plot show a larger variability, differences between the log categories are more subtle.
+
+```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+b1 <- ggplot(listings_clean,aes(x = as.factor(da_parking), y = price_usd,fill=as.factor(da_parking)))+
+  geom_boxplot()+
+  labs(x = "Parking spot available",y="Price (USD)")+
+  theme_bw()+
+  theme(axis.title = element_text(size = 9),
+        axis.text = element_text(size = 8,color="black"),
+        legend.position = "none")+
+  scale_y_continuous(labels = scales::dollar_format())+
+  scale_x_discrete(labels = c("0"="No","1"="Yes"))+
+  scale_fill_manual(values = c("red","steelblue"))
+b2 <- ggplot(listings_clean,aes(x = as.factor(da_ac), y = price_usd,fill=as.factor(da_ac)))+
+  geom_boxplot()+
+  labs(x = "Air conditioning",y="Price (USD)")+
+  theme_bw()+
+  theme(axis.title = element_text(size = 9),
+        axis.text = element_text(size = 8,color="black"),
+        legend.position = "none")+
+  scale_y_continuous(labels = scales::dollar_format())+
+  scale_x_discrete(labels = c("0"="No","1"="Yes"))+
+  scale_fill_manual(values = c("red","steelblue"))
+
+b3 <- ggplot(listings_clean,aes(x = as.factor(da_smoking), y = price_usd,fill=as.factor(da_smoking)))+
+  geom_boxplot()+
+  labs(x = "Smoking is allowed",y="Price (USD)")+
+  theme_bw()+
+  theme(axis.title = element_text(size = 9),
+        axis.text = element_text(size = 8,color="black"),
+        legend.position = "none")+
+  scale_y_continuous(labels = scales::dollar_format())+
+  scale_x_discrete(labels = c("0"="Not allowed","1"="Allowed"))+
+  scale_fill_manual(values = c("red","steelblue"))
 
 b4 <- ggplot(listings_clean,aes(x = beds, y = price_usd,color = as.factor(instant_bookable)))+
   geom_point()+
@@ -241,7 +302,7 @@ b4 <- ggplot(listings_clean,aes(x = beds, y = price_usd,color = as.factor(instan
   theme(axis.title = element_text(size = 9),
         axis.text = element_text(size = 8,color="black"),
         legend.title = element_text(size = 8),
-        legend.text = element_text(size = 7))+
+        legend.position = c(0.85,0.85))+
   scale_y_continuous(labels = scales::dollar_format())+
   scale_color_manual(name="Instantly bookable",labels=c("0"="No","1"="Yes"),
                      values = c("red","steelblue"))
@@ -249,24 +310,29 @@ grid.arrange(b1,b2,b3,b4,nrow=2,ncol=2,
              bottom = textGrob("Observations above $1000 are removed.",hjust = 0,x=0.6,gp = gpar(fontsize = 7)))
 ```
 
+Other features show that listings having air-conditioning, (bit counterintuitively) being non-smoking are more expensive. Parking spots seemingly do not lead to any price difference. Number of beds - most likely because it is linked to number of accommodates - has a positive relationship with prices as well as the possibility of instant booking.
+
 ## Models and methods used
 
 The target variable is **nightly price** across all models.
 
-1. Model 1: OLS model; $accommodates+beds+property\:type+bathrooms+neighbourhood + instant\:bookable + host\:attributes + accommodates^2+interactions$
-2. Model 2: OLS model; $Model_1 + amenities$
-3. Model 3: LASSO, based on $Model_2$
-4. Model 4: Random Forest
+1. Model 1: OLS model; $accommodates+beds+property\:type+bathrooms+neighbourhood + instant\:bookable + host\:attributes$
+2. Model 2: OLS model; $Model_1 + accommodates^2$
+3. Model 3: OLS model; $Model_2 + interactions$
+4. Model 4: OLS model; $Model_1 + amenities$ ($Model_1$ sic!)
+5. Model 5: OLS model; $Model_2 + amenities$
+6. Model 6: LASSO, based on $Model_4$
+7. Model 7: Random Forest with basic tuning
 
-The interactions include 
+The interactions are based on domain knowledge and include: 
 
 - $accommodates\times property\;type$, $air conditioning\times property\;type$, $pets\times property\;type$
 - $accommodates\times neighbourhood$, $property\;type\times neighbourhood$
 
-```{r,include=FALSE}
-#LASSO
 
-# Selecting features
+```{r,echo=FALSE,warning=FALSE}
+#OLS and LASSO
+# Selecting  and categorising features
 basic_vars <- c(
   'accommodates', 'beds',
   'f_property_type','bathrooms',
@@ -279,7 +345,7 @@ host <- c("host_is_superhost","host_has_profile_pic",
 # Dummy variables
 amenities <-  grep('^da_.*', names(listings_clean), value = TRUE)
 
-#For LASSO
+#polynomials
 poly_lev <- c('accommodates_sq')
 
 #interactions for the LASSO
@@ -289,10 +355,11 @@ X1  <- c('accommodates*f_property_type',
 X2  <- c('f_property_type*f_neighbourhood_cleansed',
          'accommodates*f_neighbourhood_cleansed')
 
-model_lasso1 <- paste0(' ~ ',paste(c(basic_vars,host),collapse = ' + '))
-model_lasso2 <- paste0(' ~ ',paste(c(basic_vars,host,poly_lev),collapse = ' + '))
-model_lasso3 <- paste0(' ~ ',paste(c(basic_vars,host,poly_lev,X1,X2),collapse = ' + '))
-model_lasso4 <- paste0(' ~ ',paste(c(basic_vars,host,poly_lev,X1,X2,amenities),collapse = ' + '))
+model_ols1 <- paste0(' ~ ',paste(c(basic_vars,host),collapse = ' + '))
+model_ols2 <- paste0(' ~ ',paste(c(basic_vars,host,poly_lev),collapse = ' + '))
+model_ols3 <- paste0(' ~ ',paste(c(basic_vars,host,poly_lev,X1,X2),collapse = ' + '))
+model_ols4 <- paste0(' ~ ',paste(c(basic_vars,host,poly_lev,amenities),collapse = ' + '))
+model_ols5 <- paste0(' ~ ',paste(c(basic_vars,host,poly_lev,X1,X2,amenities),collapse = ' + '))
 
 set.seed(0201)
 train_indices <- as.integer(createDataPartition(listings_clean$price_usd, p = 0.75, list = FALSE))
@@ -301,12 +368,10 @@ data_holdout  <- listings_clean[-train_indices, ]
 data_work <- data_train
 
 k_folds <- 5
-# Define seed value
 seed_val <- 20230210
 
-for (i in 1:4){
-  print(paste0('Estimating model: ' ,i))
-  model_name <-  paste0('model_lasso',i)
+for (i in 1:5){
+  model_name <-  paste0('model_ols',i)
   model_pretty_name <- paste0('M',i,'')
   yvar <- 'price_usd'
   xvars <- eval(parse(text = model_name))
@@ -323,27 +388,45 @@ for (i in 1:4){
                  trControl = trainControl(method = 'cv', number = k_folds))
   rmse_test <- mean(cv_i$resample$RMSE)
   model_add <- tibble(Model=model_pretty_name, Coefficients=ncoeff,
-                      R_squared=r2, BIC = BIC, 
-                      Training_RMSE = rmse_train, Test_RMSE = rmse_test)
+                      R_squared=round(r2,digits=3), BIC = round(BIC,digits = 1), 
+                      Training_RMSE = round(rmse_train,digits=3),
+                      Test_RMSE = round(rmse_test,digits = 3))
   if (i == 1){
     model_results <- model_add
   } else{
     model_results <- rbind(model_results, model_add)
   }
 }
+model_results %>%  kable(align = "c")%>% 
+  kable_styling(latex_options = "hold_position",
+                full_width=FALSE,position = "center",font_size = 9)
+```
 
+$Model_4$ stands as the best model of these five with lowest Test RMSE and BIC. It indicates that amenities are needed in general, but the interactions do not improve the model fit (even more so, worsening the fit by much), but still, the most complex model's ($Model_5$) performance is not bad either. Plotting Test and Train RMSE-s shows the same.
 
+```{r,echo=FALSE,fig.height=3.75,fig.width=6}
 # RMSE training vs test graph
-colors = c('Training RMSE'='green','Test RMSE' = 'blue')
+colors = c('Training RMSE'='red','Test RMSE' = 'steelblue')
 ggplot(data = model_results, aes(x = factor(Coefficients), group = 1))+
   geom_line(aes(y = Training_RMSE, color = 'Training RMSE'), size = 1) +
   geom_line(aes(y = Test_RMSE, color = 'Test RMSE'), size = 1)+
-  labs(y='RMSE',x='Number of coefficients',color = '')+
+  labs(subtitle = "Training and test RMSE versus model complexity",y='RMSE',x='Number of coefficients',color = '')+
   scale_color_manual(values = colors)+
   theme_bw()+
-  theme(legend.position='top')
+  theme(axis.text = element_text(color="black",size = 8),
+        axis.title = element_text(color="black",size = 9),
+        plot.subtitle = element_text(size = 10.5,hjust =0.5),
+        legend.position='bottom')
+```
 
-vars_model_4 <- c('price_usd',basic_vars,host,poly_lev,X1,X2,amenities)
+## LASSO based on the best OLS
+
+Next model (LASSO) is based on $Model_4$. After a basic tuning (only parameter here is $\lambda$), the following plot shows which tuning parameter is the most optimal.
+
+```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+#Create Lasso
+
+vars_model_4 <- c('price_usd',basic_vars,host,poly_lev,amenities)
 
 train_control <- trainControl(method = 'cv', number = k_folds)
 tune_grid     <- expand.grid('alpha' = c(1), 'lambda' = seq(0.05, 1, by = 0.05))
@@ -357,48 +440,48 @@ lasso_model <- caret::train(formula,
                       trControl = train_control,
                       tuneGrid = tune_grid,
                       na.action=na.exclude)
-lasso_model$bestTune
-lasso_model$bestTune$lambda
-plot(lasso_model)
+lasso_fitstats <- lasso_model$results %>%
+  filter(lambda == lasso_model$bestTune$lambda) 
+lasso_add <- tibble(Model='LASSO', Coefficients=nrow(lasso_coeffs_nz),
+                    R_squared=round(lasso_fitstats$Rsquared,digits = 3), BIC = NA, 
+                    Training_RMSE = NA, Test_RMSE = round(lasso_fitstats$RMSE,digits = 3))
+# Add it to final results
+model_results2 <- rbind(model_results, lasso_add)
 
+plot(lasso_model)
+```
+
+The best $\lambda$ is `r lasso_model$bestTune$lambda`, this is where the cross-validated RMSE is the lowest.
+
+```{r,include=FALSE}
 lasso_coeffs <- coef(lasso_model$finalModel, lasso_model$bestTune$lambda) %>%
   as.matrix() %>%
   as.data.frame() %>%
   rownames_to_column(var = 'variable') %>%
   rename(coefficient = `s1`)
-#Features with shrunk coefficient
+
 lasso_coeffs_nz<-lasso_coeffs %>%
   filter(coefficient!=0)
 
-lasso_fitstats <- lasso_model$results %>%
-  filter(lambda == lasso_model$bestTune$lambda) 
-lasso_add <- tibble(Model='LASSO', Coefficients=nrow(lasso_coeffs_nz),
-                    R_squared=lasso_fitstats$Rsquared, BIC = NA, 
-                    Training_RMSE = NA, Test_RMSE = lasso_fitstats$RMSE)
-# Add it to final results
-model_results <- rbind(model_results, lasso_add)
-
-#evaluate
-m3 <- feols(formula(paste0('price_usd',model_lasso3)), data = data_work, vcov = 'hetero')
-m4 <- feols(formula(paste0('price_usd',model_lasso4)), data = data_work, vcov = 'hetero')
-
-# Make prediction for the hold-out sample with each models
-m3_p <- predict(m3, newdata = data_holdout)
-m4_p <- predict(m4, newdata = data_holdout)
-mL_p <- predict(lasso_model, newdata = data_holdout)
-
-# Calculate the RMSE on hold-out sample
-m3_rmse <- RMSE(m3_p,data_holdout$price_usd)
-m4_rmse <- RMSE(m4_p,data_holdout$price_usd)
-mL_rmse <- RMSE(mL_p,data_holdout$price_usd)
-# Create a table
-sum <- rbind(m3_rmse,m4_rmse,mL_rmse)
-rownames(sum) <- c('Model 3','Model 4','LASSO')
-colnames(sum) <- c('RMSE on hold-out sample')
-sum
+lasso_coeffs_zero <- lasso_coeffs %>%
+  filter(coefficient==0)
 ```
 
-```{r,include=FALSE}
+Many coefficients - `r nrow(lasso_coeffs_zero)` out of `r nrow(lasso_coeffs)` - has been shrunk to zero, mostly property types (because of low sample size each), a few districts and several amenities dummy (f.e all the ones related to babies-children). These features apparently are among the ones that did not improve the fit as much as they increased the variance according to the algorithm.
+
+```{r,echo=FALSE}
+model_results2 %>%  kable(align = "c")%>% 
+  kable_styling(latex_options = "hold_position",
+                full_width=FALSE,position = "center",font_size = 9)
+```
+
+The LASSO model produces a better Test RMSE, indicating that it might be a better model than the previously seen OLS models.
+
+## Random Forest (RF)
+
+Going one step further, now using RF in order to predict Airbnb prices. Then, there is no need to define functional form and choose which variables to include. It only needs a stopping rule (depth rule, minimum node size), splitting rule (square root of features) and number of trees to grow, I define two models with somewhat different parameters to decide which provides a better fit.
+
+```{r,echo=FALSE}
 predictors_1 <- c(basic_vars)
 predictors_2 <- c(basic_vars, host, amenities)
 predictors_E <- c(basic_vars, host, amenities, X1,X2)
@@ -407,59 +490,117 @@ predictors_E <- c(basic_vars, host, amenities, X1,X2)
 train_control <- trainControl(method = 'cv',
                               number = 5,
                               verboseIter = FALSE)
+#Tuning
 tune_grid <- expand.grid(
-  .mtry = c(8),
-  .splitrule = 'variance',
-  .min.node.size = c(50)
+  .mtry = c(5, 7, 9),
+  .splitrule = "variance",
+  .min.node.size = c(5, 10)
 )
-
+# model 1
 set.seed(12345)
-system.time({
 rf_model_1 <- train(
-  formula(paste0('price_usd ~', paste0(predictors_1, collapse = ' + '))),
+  formula(paste0("price_usd ~", paste0(predictors_1, collapse = " + "))),
   data = data_train,
-  method = 'ranger',
+  method = "ranger",
   trControl = train_control,
   tuneGrid = tune_grid,
-  importance = 'impurity'
+  importance = "impurity"
 )
-})
+# model2
+tune_grid <- expand.grid(
+  .mtry = c(8, 10, 12),
+  .splitrule = "variance",
+  .min.node.size = c(5, 10, 15)
+)
 
 set.seed(12345)
-system.time({
 rf_model_2 <- train(
-  formula(paste0('price_usd ~', paste0(predictors_2, collapse = ' + '))),
+  formula(paste0("price_usd ~", paste0(predictors_2, collapse = " + "))),
   data = data_train,
-  method = 'ranger',
+  method = "ranger",
   trControl = train_control,
   tuneGrid = tune_grid,
-  importance = 'impurity'
+  importance = "impurity"
 )
-})
-
 results <- resamples(
   list(
     model_1  = rf_model_1,
     model_2  = rf_model_2
- )
+  )
 )
+
+rf_tuning_modelB <- rf_model_2$results %>%
+  dplyr::select(mtry, min.node.size, RMSE) %>%
+  dplyr::rename(nodes = min.node.size) %>%
+  spread(key = mtry, value = RMSE)
+
+result_1 <- matrix(c(
+                     rf_model_1$finalModel$mtry,
+                     rf_model_2$finalModel$mtry,
+                     rf_model_1$finalModel$min.node.size,
+                     rf_model_2$finalModel$min.node.size,
+                     round(mean(results$values$`model_1~RMSE`),digits=3),
+                     round(mean(results$values$`model_2~RMSE`),digits = 3)),
+                    nrow=2, ncol=3,
+                    dimnames = list(c("Model 1", "Model 2"),
+                                    c("Min vars","Min nodes","RMSE")))
+
+result_1 %>% kable(align = "c")%>% 
+  kable_styling(latex_options = "hold_position",
+                full_width=FALSE,position = "center",font_size = 9)
 ```
 
+Decision: model 2 is selected with minimum node size at `r rf_model_2$finalModel$min.node.size` and selected variables to split equal to `r rf_model_2$finalModel$mtry`. With this RF model, I plot the variables with their respective importance to decrease the variance of the model in three ways:
 
-```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+- Total (above an importance threshold)
+- Best 10 
+- Grouped according to broader features and factor types
+
+```{r,include=FALSE}
+#Preparing for plotting: grouping, cleaning var names and creating importance cutoff (above 500)
+
+group.importance <- function(rf.obj, groups) {
+  var.imp <- as.matrix(sapply(groups, function(g) {
+    sum(ranger::importance(rf.obj)[g], na.rm = TRUE)
+  }))
+  colnames(var.imp) <- "MeanDecreaseGini"
+  return(var.imp)
+}
 rf_model_2_var_imp <- ranger::importance(rf_model_2$finalModel)/1000
 rf_model_2_var_imp_df <-
   data.frame(varname = names(rf_model_2_var_imp),imp = rf_model_2_var_imp) %>%
-  mutate(varname = gsub('f_neighbourhood_cleansed', 'District: ', varname)) %>%
-  mutate(varname = gsub('f_property_type', 'Property type:\n', varname)) %>%
+  mutate(varname = gsub("f_neighbourhood_cleansed", "District: ", varname) ) %>%
+  mutate(varname = gsub("f_property_type", "Property type: ", varname) ) %>%
   arrange(desc(imp)) %>%
   mutate(imp_percentage = imp/sum(imp))
-
 cutoff = 500
-ggplot(rf_model_2_var_imp_df[rf_model_2_var_imp_df$imp>cutoff,],
+
+varnames <- rf_model_2$finalModel$xNames
+f_neighbourhood_cleansed_varnames <- grep("f_neighbourhood_cleansed",varnames, value = TRUE)
+f_property_type_varnames <- grep("f_property_type",varnames, value = TRUE)
+f_host_varnames <- grep("host",varnames, value = TRUE)
+d_amenities_varnames <- grep("da_",varnames, value = TRUE)
+
+
+groups <- list(f_neighbourhood_cleansed=f_neighbourhood_cleansed_varnames,
+               f_property_type = f_property_type_varnames,
+               host = f_host_varnames,
+               bathrooms = "bathrooms",
+               accommodates = "accommodates",
+               d_amenities = d_amenities_varnames)
+
+rf_model_2_var_imp_grouped <- group.importance(rf_model_2$finalModel, groups)
+rf_model_2_var_imp_grouped_df <- data.frame(varname = rownames(rf_model_2_var_imp_grouped),
+                                            imp = rf_model_2_var_imp_grouped[,1])  %>%
+  mutate(imp_percentage = imp/sum(imp))
+```
+
+```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+cutoff = 500
+vip1 <- ggplot(rf_model_2_var_imp_df[rf_model_2_var_imp_df$imp>cutoff,],
                                   aes(x=reorder(varname, imp), y=imp_percentage)) +
-  geom_point(color='red', size=1.5) +
-  geom_segment(aes(x=varname,xend=varname,y=0,yend=imp_percentage), color='red',size=1)+
+  geom_point(size=1.5) +
+  geom_segment(aes(x=varname,xend=varname,y=0,yend=imp_percentage),size=1)+
   labs(title="Variable importance plot",y = 'Importance (Percent)', x= 'Variable name',caption = "Importance threshold above 500.") +
   coord_flip() +
   scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
@@ -468,13 +609,15 @@ ggplot(rf_model_2_var_imp_df[rf_model_2_var_imp_df$imp>cutoff,],
         axis.title = element_text(size=8,color = "black"),
         plot.title = element_text(size =10,hjust =0.5),
         plot.caption = element_text(size = 7))
+vip1
 ```
 
 ```{r,echo=FALSE,fig.height=3.75,fig.width=6}
-ggplot(rf_model_2_var_imp_df[1:10,], aes(x=reorder(varname, imp), y=imp_percentage)) +
-  geom_point(color='red', size=1) +
-  geom_segment(aes(x=varname,xend=varname,y=0,yend=imp_percentage), color='red', size=0.75) +
-  labs(title="Variable importance plot",y = 'Importance (Percent)', x= 'Variable name',caption = "Top 10 features.") +
+#top10
+vip2 <- ggplot(rf_model_2_var_imp_df[1:10,], aes(x=reorder(varname, imp), y=imp_percentage)) +
+  geom_point(size=1) +
+  geom_segment(aes(x=varname,xend=varname,y=0,yend=imp_percentage), size=0.75) +
+  labs(title="Variable importance plot - Best 10",y = 'Importance (Percent)', x= 'Variable name',caption = "Top 10 features.") +
   coord_flip() +
   scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
   theme_bw()+
@@ -482,5 +625,93 @@ ggplot(rf_model_2_var_imp_df[1:10,], aes(x=reorder(varname, imp), y=imp_percenta
         axis.title = element_text(size=8,color = "black"),
         plot.title = element_text(size =10,hjust =0.5),
         plot.caption = element_text(size = 7))
+vip2
 ```
+
+```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+vip3 <-ggplot(rf_model_2_var_imp_grouped_df, aes(x=reorder(varname, imp), y=imp_percentage)) +
+  geom_point(size=1) +
+  geom_segment(aes(x=varname,xend=varname,y=0,yend=imp_percentage), size=0.75) +
+  labs(title="Variable importance plot - Grouped",y = 'Importance (Percent)', x= 'Variable name',caption = "Top 10 features.") +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  theme_bw()+
+  theme(axis.text = element_text(size=7,color="black"),
+        axis.title = element_text(size=8,color = "black"),
+        plot.title = element_text(size =10,hjust =0.5),
+        plot.caption = element_text(size = 7))
+vip3
+```
+
+
+## Model comparison and evaluation
+
+The final and arguably the most important part is the model evaluation, how the specified models perform on the holdout set and how accurate the prices predictions are.
+But before, let us have a final look at the Test RMSE comparison of all the models.
+
+```{r,echo=FALSE}
+test_rmse_table <- data.table(c(t(model_results2$Test_RMSE),round(result_1[2,3],digits = 3))) %>% t()
+colnames(test_rmse_table) <- c(c(model_results2$Model),"Random Forest")
+rownames(test_rmse_table) <- "Test RMSE"
+test_rmse_table %>% kable(align = "c")%>% 
+  kable_styling(latex_options = "hold_position",
+                full_width=FALSE,position = "center",font_size = 9)
+```
+
+```{r,echo=FALSE}
+#evaluate
+m4 <- feols(formula(paste0('price_usd',model_ols4)), data = data_work, vcov = 'hetero')
+m5 <- feols(formula(paste0('price_usd',model_ols5)), data = data_work, vcov = 'hetero')
+
+# Make prediction for the hold-out sample with each models
+m4_p <- predict(m4, newdata = data_holdout)
+m5_p <- predict(m5, newdata = data_holdout)
+mL_p <- predict(lasso_model, newdata = data_holdout)
+mRF_p <- predict(rf_model_2, newdata = data_holdout)
+
+# Calculate the RMSE on hold-out sample
+m4_rmse <- RMSE(m4_p,data_holdout$price_usd)
+m5_rmse <- RMSE(m5_p,data_holdout$price_usd)
+mL_rmse <- RMSE(mL_p,data_holdout$price_usd)
+mRF_rmse <- RMSE(mRF_p,data_holdout$price_usd)
+# Create a table
+predict_table <- data.frame(rbind(m4_rmse,m5_rmse,mL_rmse,mRF_rmse)) %>% round(digits = 3)
+rownames(predict_table) <- c('Model 4','Model 5','LASSO',"Random Forest")
+colnames(predict_table) <- c('RMSE on hold-out sample')
+
+data_holdout <- data_holdout %>% 
+  cbind(m4_p,m5_p,mL_p,mRF_p)
+
+predict_table %>% kable(align = "c")%>% 
+  kable_styling(latex_options = "hold_position",
+                full_width=FALSE,position = "center",font_size = 9)
+```
+
+The Random Forest model provides a clearly lower RMSE on the holdout sample fit, meaning it can predict prices with a little lower error on average. As a conclusion, this should be the chosen model for price prediction.
+
+## Additional plots on prediction
+
+Price predictions can be shown via scatter plots as well - we might discover some unique patterns.
+
+```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+predict_plot <- data_holdout %>% 
+  select(price_usd,m4_p,m5_p,mL_p,mRF_p) %>% 
+  melt(id.vars = "price_usd") %>% 
+  rename(model = variable,
+         predicted_price = value)
+
+ggplot(predict_plot,aes(x = price_usd,y=predicted_price))+
+  geom_point(color="lightblue")+
+  geom_abline(intercept = 0, slope = 1,color="black",linetype = "dashed")+
+  labs(x = "Actual price (USD)",y="Predicted price (USD)")+
+  theme_bw()+
+  theme(axis.text = element_text(size=7,color="black"),
+        axis.title = element_text(size=8,color = "black"),
+        plot.title = element_text(size =10,hjust =0.5),
+        strip.background = element_blank())+
+  facet_wrap(.~model)
+
+```
+
+
 

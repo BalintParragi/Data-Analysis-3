@@ -195,7 +195,7 @@ plot_listings <- listings_clean %>%
   mutate(avg_price_usd = mean(price_usd,na.rm=T),
          count = n())
 
-ggplot(plot_listings,aes(x = reorder(f_neighbourhood_cleansed,-avg_price_usd),y=price_usd))+
+nh <- ggplot(plot_listings,aes(x = reorder(f_neighbourhood_cleansed,-avg_price_usd),y=price_usd))+
   geom_boxplot()+
   geom_text(aes(y = max(price_usd)*1.05,label=count),size = 2.5)+
   labs(x = "District", y="Price (USD)",caption = "Number of listings\nin each district in the upper part.")+
@@ -205,6 +205,7 @@ ggplot(plot_listings,aes(x = reorder(f_neighbourhood_cleansed,-avg_price_usd),y=
         axis.text.x = element_text(size = 7,color="black",angle=90),
         plot.caption = element_text(size = 7.5))+
   scale_y_continuous(labels = scales::dollar_format())
+nh
 ```
 
 Using domain knowledge, I assume that location should be some of the most important factors in deciding the price. Unsurprisingly, Innere Stadt (first district) clearly stands out, it is much more expensive on average than any other districts in Vienna. Landstrasse (3rd), Wieden (4th), Josefstadt (8th) Mariahilf (6th) and Neubau (7th) are also on top as they constitute the inner, historic part of the city, close to the canal and several sights. Some others are on the shore of the Danube (Florisdorf, Leopoldstadt), which can come with better views. Also, Leopoldstadt contains the most observations, as it is both close to the Danube and to the center, ideal for people who are seeking entire apartments.
@@ -231,6 +232,8 @@ h2 <- ggplot(listings_clean,aes(x = ln_price_usd))+
         plot.caption = element_text(size = 7.5))
 
 grid.arrange(h1,h2,nrow=1,ncol=2)
+
+h <- arrangeGrob(h1,h2,nrow=1,ncol=2)
 ```
 
 Prices are as usual in the data: very skewed to the left, and mostly below 500 USD/night with a mean around `r mean(listings_clean$price_usd,na.rm=T)`. The log price plot shows a much clearer view, more resembling to normally distributed.
@@ -407,7 +410,7 @@ $Model_4$ stands as the best model of these five with lowest Test RMSE and BIC. 
 ```{r,echo=FALSE,fig.height=3.75,fig.width=6}
 # RMSE training vs test graph
 colors = c('Training RMSE'='red','Test RMSE' = 'steelblue')
-ggplot(data = model_results, aes(x = factor(Coefficients), group = 1))+
+rmse<-ggplot(data = model_results, aes(x = factor(Coefficients), group = 1))+
   geom_line(aes(y = Training_RMSE, color = 'Training RMSE'), size = 1) +
   geom_line(aes(y = Test_RMSE, color = 'Test RMSE'), size = 1)+
   labs(subtitle = "Training and test RMSE versus model complexity",y='RMSE',x='Number of coefficients',color = '')+
@@ -417,6 +420,7 @@ ggplot(data = model_results, aes(x = factor(Coefficients), group = 1))+
         axis.title = element_text(color="black",size = 9),
         plot.subtitle = element_text(size = 10.5,hjust =0.5),
         legend.position='bottom')
+rmse
 ```
 
 ## LASSO based on the best OLS
@@ -442,11 +446,6 @@ lasso_model <- caret::train(formula,
                       na.action=na.exclude)
 lasso_fitstats <- lasso_model$results %>%
   filter(lambda == lasso_model$bestTune$lambda) 
-lasso_add <- tibble(Model='LASSO', Coefficients=nrow(lasso_coeffs_nz),
-                    R_squared=round(lasso_fitstats$Rsquared,digits = 3), BIC = NA, 
-                    Training_RMSE = NA, Test_RMSE = round(lasso_fitstats$RMSE,digits = 3))
-# Add it to final results
-model_results2 <- rbind(model_results, lasso_add)
 
 plot(lasso_model)
 ```
@@ -465,6 +464,12 @@ lasso_coeffs_nz<-lasso_coeffs %>%
 
 lasso_coeffs_zero <- lasso_coeffs %>%
   filter(coefficient==0)
+lasso_add <- tibble(Model='LASSO', Coefficients=nrow(lasso_coeffs_nz),
+                    R_squared=round(lasso_fitstats$Rsquared,digits = 3), BIC = NA, 
+                    Training_RMSE = NA, Test_RMSE = round(lasso_fitstats$RMSE,digits = 3))
+# Add it to final results
+model_results2 <- rbind(model_results, lasso_add)
+
 ```
 
 Many coefficients - `r nrow(lasso_coeffs_zero)` out of `r nrow(lasso_coeffs)` - has been shrunk to zero, mostly property types (because of low sample size each), a few districts and several amenities dummy (f.e all the ones related to babies-children). These features apparently are among the ones that did not improve the fit as much as they increased the variance according to the algorithm.
@@ -696,6 +701,10 @@ Price predictions can be shown via scatter plots as well - we might discover som
 ```{r,echo=FALSE,fig.height=3.75,fig.width=6}
 predict_plot <- data_holdout %>% 
   select(price_usd,m4_p,m5_p,mL_p,mRF_p) %>% 
+  rename(`OLS Model 4` = m4_p,
+         `OLS Model 5` = m5_p,
+         LASSO = mL_p,
+         `Random Forest` = mRF_p) %>% 
   melt(id.vars = "price_usd") %>% 
   rename(model = variable,
          predicted_price = value)

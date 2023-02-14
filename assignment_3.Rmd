@@ -1,0 +1,95 @@
+---
+title: "Assignment 3 - Finding fast growing firms"
+author: "Balint Parragi, `r Sys.Date()`"
+geometry: left=1cm,right=1cm,top=1.5cm,bottom=1.5cm
+fontsize: 8pt
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE,message = FALSE)
+options(scipen = 999)
+```
+
+```{r,include=FALSE}
+library(tidyverse)
+library(fixest)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(kableExtra)
+library(gridExtra)
+library(grid)
+library(readxl)
+library(gtsummary)
+```
+
+```{css, echo=FALSE}
+h1, h2, h3 , h4 {
+  text-align: center;
+  font-weight: bold;
+}
+```
+
+# Preliminary: data inspection and data munging
+
+```{r,echo=FALSE}
+#too large to push to github
+bisnode_raw <- read_csv("https://osf.io/3qyut/download") %>% data.table()
+
+
+#many NAs: COGS
+#D: only NA
+
+
+#plot target and features one-by-one on scatter, fit a loess
+
+unique(bisnode$origin)
+sum(is.na(bisnode$region_m))
+summary(bisnode)
+#
+
+bisnode_raw %>% 
+  select(c(amort:curr_liab,origin,region_m,gender)) %>% 
+  tbl_summary(by=origin,
+                         type = list(region_m ~ "categorical",
+                                     gender ~ "categorical"),
+                         statistic = list(all_continuous() ~ "{mean} ({sd})",
+                     all_categorical() ~ "{p}%"),
+              digits = all_continuous() ~ 2,
+              label = list(gender~"Gender",region_m~"Region")
+              ) %>%
+  add_overall(last = T) %>% 
+  modify_spanning_header(c("stat_1", "stat_2","stat_3") ~ "Origin of firm") %>%
+  modify_header(list(label ~ "Feature")) %>% 
+  modify_footnote(all_stat_cols() ~ NA) %>% 
+  as_gt()
+
+```
+
+# Part I: probability prediction
+
+```{r}
+
+
+
+```
+
+# Part II: classification
+
+```{r}
+
+
+
+```
+
+# Part III: Discussion
+
+```{r}
+
+
+
+```

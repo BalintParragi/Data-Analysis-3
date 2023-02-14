@@ -617,7 +617,7 @@ vip1 <- ggplot(rf_model_2_var_imp_df[rf_model_2_var_imp_df$imp>cutoff,],
 vip1
 ```
 
-```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+```{r,echo=FALSE,fig.align='center',fig.height=3.75,fig.width=6}
 #top10
 vip2 <- ggplot(rf_model_2_var_imp_df[1:10,], aes(x=reorder(varname, imp), y=imp_percentage)) +
   geom_point(size=1) +
@@ -633,7 +633,7 @@ vip2 <- ggplot(rf_model_2_var_imp_df[1:10,], aes(x=reorder(varname, imp), y=imp_
 vip2
 ```
 
-```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+```{r,echo=FALSE,fig.align='center',fig.height=3.75,fig.width=6}
 vip3 <-ggplot(rf_model_2_var_imp_grouped_df, aes(x=reorder(varname, imp), y=imp_percentage)) +
   geom_point(size=1) +
   geom_segment(aes(x=varname,xend=varname,y=0,yend=imp_percentage), size=0.75) +
@@ -698,7 +698,7 @@ The Random Forest model provides a clearly lower RMSE on the holdout sample fit,
 
 Price predictions can be shown via scatter plots as well - we might discover some unique patterns.
 
-```{r,echo=FALSE,fig.height=3.75,fig.width=6}
+```{r,echo=FALSE,fig.align='center',fig.height=3.75,fig.width=6}
 predict_plot <- data_holdout %>% 
   select(price_usd,m4_p,m5_p,mL_p,mRF_p) %>% 
   rename(`OLS Model 4` = m4_p,

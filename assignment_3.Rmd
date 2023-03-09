@@ -34,24 +34,155 @@ h1, h2, h3 , h4 {
 }
 ```
 
-# Preliminary: data inspection and data munging
+# Preliminary data inspection and data munging
 
 ```{r,echo=FALSE}
 #too large to push to github
 bisnode_raw <- read_csv("https://osf.io/3qyut/download") %>% data.table()
 
+bisnode_raw <- fread("C:/Users/BalintParragi/Desktop/CEU/5th semester/Machine learning for economists/cs_bisnode_panel.csv")
 
-#many NAs: COGS
+#Drop variables:
+#COGs, finished_prod, net_dom and exp sales, wages: around 93.7% missing
 #D: only NA
+
+#Sample: 2010-2015
+
+ggplot(bisnode_raw[year == 2012&profit_loss_year>=0&profit_loss_year<=quantile(profit_loss_year,0.95,na.rm=T),],aes(x=profit_loss_year))+
+  geom_histogram()
+summary(bisnode_raw[year == 2012]$profit_loss_year)
+ggplot(bisnode_raw[year == 2012&labor_avg<=quantile(labor_avg,0.95,na.rm=T),],aes(x = labor_avg))+
+  geom_histogram()
+summary(bisnode_raw[year == 2012]$labor_avg)
+t <- bisnode_raw %>% 
+  mutate(labor = labor_avg*12) %>% 
+  select(labor)
+
+summary(bisnode_raw$founded_year)
+nrow(bisnode_raw[sales<0,])
+sum(is.na(bisnode_raw$sales))
+```
+
+```{r}
+  
+#IT SHOULD BE CROSS SECTION - MAYBE WITH LAGS or diffs!
+
+#also: summarize the data munging (which and why to create, how to pool industries etc)
+
+bisnode <- bisnode_raw %>% 
+  select(-c(COGS, finished_prod, net_dom_sales, net_exp_sales, wages,D)) %>%
+  filter(year <= 2015 & year >= 2010) %>% 
+  filter(sales > 0 & !is.na(sales)) %>% #status alive filtering
+  mutate(ln_sales = log(sales),
+         sales_mil=sales/1000000,
+         sales_mil_log = log(sales_mil)) %>%
+  group_by(comp_id) %>%
+  mutate(d1_sales_mil_log = sales_mil_log - dplyr::lag(sales_mil_log, 1) ) %>%
+  ungroup() %>%
+  mutate(age = (year - founded_year) %>%
+           ifelse(. < 0, 0, .),
+         new = as.numeric(age <= 1) %>%
+           ifelse(balsheet_notfullyear == 1, 1, .),
+         d1_sales_mil_log = ifelse(new == 1, 0, d1_sales_mil_log),
+         new = ifelse(is.na(d1_sales_mil_log), 1, new),
+         d1_sales_mil_log = ifelse(is.na(d1_sales_mil_log), 0, d1_sales_mil_log)) %>%
+  mutate(ind2_cat = ind2 %>% #based on ch17 cleaning
+           ifelse(. > 56, 60, .)  %>%
+           ifelse(. < 26, 20, .) %>%
+           ifelse(. < 55 & . > 35, 40, .) %>%
+           ifelse(. == 31, 30, .) %>%
+           ifelse(is.na(.), 99, .)) %>% 
+  mutate(age_sq = age^2,
+         foreign_management = as.numeric(foreign >= 0.5),
+         gender_m = factor(gender, levels = c("female", "male", "mix")),
+         m_region_loc = factor(region_m, levels = c("Central", "East", "West"))) %>%
+  #correcting assets variables by creating flags for negatives turned into 0
+  mutate(flag_asset_problem=ifelse(intang_assets<0 | curr_assets<0 | fixed_assets<0,1,0),
+         intang_assets = ifelse(intang_assets < 0, 0, intang_assets),
+         curr_assets = ifelse(curr_assets < 0, 0, curr_assets),
+         fixed_assets = ifelse(fixed_assets < 0, 0, fixed_assets),
+         total_assets_bs = intang_assets + curr_assets + fixed_assets)
+
+pl_names <- c("extra_exp","extra_inc",  "extra_profit_loss", "inc_bef_tax" ,"inventories",
+              "material_exp", "profit_loss_year", "personnel_exp")
+bs_names <- c("intang_assets", "curr_liab", "fixed_assets", "liq_assets", "curr_assets",
+              "share_eq", "subscribed_cap", "tang_assets" )
+
+# divide all pl_names elements by sales, bs_names by total assets, and create new columns for them
+bisnode <- bisnode %>%
+  mutate_at(vars(pl_names), funs("pl"=./sales)) %>% 
+  mutate_at(vars(bs_names), funs("bs"=ifelse(total_assets_bs == 0, 0, ./total_assets_bs)))
+
+#Flags
+# Variables that represent accounting items that cannot be negative (e.g. materials)
+zero <-  c("extra_exp_pl", "extra_inc_pl", "inventories_pl", "material_exp_pl", "personnel_exp_pl",
+           "curr_liab_bs", "fixed_assets_bs", "liq_assets_bs", "curr_assets_bs", "subscribed_cap_bs",
+           "intang_assets_bs")
+bisnode <- bisnode %>%
+  mutate_at(vars(zero), funs("flag_high"= as.numeric(.> 1))) %>%
+  mutate_at(vars(zero), funs(ifelse(.> 1, 1, .))) %>%
+  mutate_at(vars(zero), funs("flag_error"= as.numeric(.< 0))) %>%
+  mutate_at(vars(zero), funs(ifelse(.< 0, 0, .)))
+
+# for vars that could be any, but are mostly between -1 and 1
+any <-  c("extra_profit_loss_pl", "inc_bef_tax_pl", "profit_loss_year_pl", "share_eq_bs")
+
+bisnode <- bisnode %>%
+  mutate_at(vars(any), funs("flag_low"= as.numeric(.< -1))) %>%
+  mutate_at(vars(any), funs(ifelse(.< -1, -1, .))) %>%
+  mutate_at(vars(any), funs("flag_high"= as.numeric(.> 1))) %>%
+  mutate_at(vars(any), funs(ifelse(.> 1, 1, .))) %>%
+  mutate_at(vars(any), funs("flag_zero"= as.numeric(.== 0))) %>%
+  mutate_at(vars(any), funs("quad"= .^2))
+
+# dropping flags with no variation
+variances<- bisnode %>%
+  select(contains("flag")) %>%
+  apply(2, var, na.rm = TRUE) == 0
+
+bisnode <- bisnode %>%
+  select(-one_of(names(variances)[variances])) %>% 
+  mutate(ceo_age = year-birth_year,
+         flag_low_ceo_age = as.numeric(ceo_age < 25 & !is.na(ceo_age)),
+         flag_high_ceo_age = as.numeric(ceo_age > 75 & !is.na(ceo_age)),
+         flag_miss_ceo_age = as.numeric(is.na(ceo_age)),
+         ceo_age = ifelse(ceo_age < 25, 25, ceo_age) %>%
+           ifelse(. > 75, 75, .) %>%
+           ifelse(is.na(.), mean(., na.rm = TRUE), .),
+         ceo_young = as.numeric(ceo_age < 40),
+         labor_avg_mod = ifelse(is.na(labor_avg), mean(labor_avg, na.rm = TRUE), labor_avg),
+         flag_miss_labor_avg = as.numeric(is.na(labor_avg))) %>% 
+  #select(-labor_avg) %>% 
+  mutate(urban_m = factor(urban_m, levels = c(1,2,3)),
+         ind2_cat = factor(ind2_cat, levels = sort(unique(data$ind2_cat))),
+         sales_mil_log_sq=sales_mil_log^2,
+         flag_low_d1_sales_mil_log = ifelse(d1_sales_mil_log < -1.5, 1, 0),
+         flag_high_d1_sales_mil_log = ifelse(d1_sales_mil_log > 1.5, 1, 0),
+         d1_sales_mil_log_mod = ifelse(d1_sales_mil_log < -1.5, -1.5,
+                                       ifelse(d1_sales_mil_log > 1.5, 1.5, d1_sales_mil_log)),
+         d1_sales_mil_log_mod_sq = d1_sales_mil_log_mod^2) %>% 
+  filter(!is.na(liq_assets_bs),!is.na(foreign), !is.na(ind),
+         !is.na(age),!is.na(foreign), !is.na(material_exp_pl), !is.na(m_region_loc)) %>% 
+  #drop unused factor levels
+  mutate_at(vars(colnames(bisnode)[sapply(bisnode, is.factor)]), funs(fct_drop)) %>% 
+  #DEFINE TARGET
+  mutate(fast_grow_sales =,
+         fast_grow_profit =,
+         fast_grow_labor =,) %>% 
+  #Lagged variables
+  mutate() %>% 
+  filter(year == 2012)
+
+#actually remove sales stuff from the regular mutate phases
+#winsorize is very arbitrary
 
 
 #plot target and features one-by-one on scatter, fit a loess
 
-unique(bisnode$origin)
-sum(is.na(bisnode$region_m))
-summary(bisnode)
-#
+```
 
+
+```{r}
 bisnode_raw %>% 
   select(c(amort:curr_liab,origin,region_m,gender)) %>% 
   tbl_summary(by=origin,
@@ -73,6 +204,119 @@ bisnode_raw %>%
 # Part I: probability prediction
 
 ```{r}
+
+#selecting variables
+
+
+rawvars <-  c("curr_assets", "curr_liab", "extra_exp", "extra_inc", "extra_profit_loss", "fixed_assets",
+              "inc_bef_tax", "intang_assets", "inventories", "liq_assets", "material_exp", "personnel_exp",
+              "profit_loss_year", "sales", "share_eq", "subscribed_cap")
+qualityvars <- c("balsheet_flag", "balsheet_length", "balsheet_notfullyear")
+engvar <- c("total_assets_bs", "fixed_assets_bs", "liq_assets_bs", "curr_assets_bs",
+            "share_eq_bs", "subscribed_cap_bs", "intang_assets_bs", "extra_exp_pl",
+            "extra_inc_pl", "extra_profit_loss_pl", "inc_bef_tax_pl", "inventories_pl",
+            "material_exp_pl", "profit_loss_year_pl", "personnel_exp_pl")
+engvar2 <- c("extra_profit_loss_pl_quad", "inc_bef_tax_pl_quad",
+             "profit_loss_year_pl_quad", "share_eq_bs_quad")
+engvar3 <- c(grep("*flag_low$", names(bisnode), value = TRUE),
+             grep("*flag_high$", names(bisnode), value = TRUE),
+             grep("*flag_error$", names(bisnode), value = TRUE),
+             grep("*flag_zero$", names(bisnode), value = TRUE))
+d1 <-  c("d1_sales_mil_log_mod", "d1_sales_mil_log_mod_sq",
+         "flag_low_d1_sales_mil_log", "flag_high_d1_sales_mil_log")
+hr <- c("female", "ceo_age", "flag_high_ceo_age", "flag_low_ceo_age",
+        "flag_miss_ceo_age", "ceo_count", "labor_avg_mod",
+        "flag_miss_labor_avg", "foreign_management")
+firm <- c("age", "age_sq", "new", "ind2_cat", "m_region_loc", "urban_m")
+
+# interactions for logit, LASSO
+interactions1 <- c("ind2_cat*age", "ind2_cat*age_sq",
+                   "ind2_cat*d1_sales_mil_log_mod", "ind2_cat*sales_mil_log",
+                   "ind2_cat*ceo_age", "ind2_cat*foreign_management",
+                   "ind2_cat*female",   "ind2_cat*urban_m", "ind2_cat*labor_avg_mod")
+interactions2 <- c("sales_mil_log*age", "sales_mil_log*female",
+                   "sales_mil_log*profit_loss_year_pl", "sales_mil_log*foreign_management")
+
+
+X1 <- c("sales_mil_log", "sales_mil_log_sq", "d1_sales_mil_log_mod", "profit_loss_year_pl", "ind2_cat")
+X2 <- c("sales_mil_log", "sales_mil_log_sq", "d1_sales_mil_log_mod", "profit_loss_year_pl", "fixed_assets_bs","share_eq_bs","curr_liab_bs ",   "curr_liab_bs_flag_high ", "curr_liab_bs_flag_error",  "age","foreign_management" , "ind2_cat")
+X3 <- c("sales_mil_log", "sales_mil_log_sq", firm, engvar,                   d1)
+X4 <- c("sales_mil_log", "sales_mil_log_sq", firm, engvar, engvar2, engvar3, d1, hr, qualityvars)
+X5 <- c("sales_mil_log", "sales_mil_log_sq", firm, engvar, engvar2, engvar3, d1, hr, qualityvars, interactions1, interactions2)
+
+# for LASSO
+logitvars <- c("sales_mil_log", "sales_mil_log_sq", engvar, engvar2, engvar3, d1, hr, firm, qualityvars, interactions1, interactions2)
+
+# for RF (no interactions, no modified features)
+rfvars  <-  c("sales_mil", "d1_sales_mil_log", rawvars[rawvars != "sales"], hr, firm, qualityvars)
+
+
+set.seed(20230309)
+
+# !!!!
+train_indices <- as.integer(createDataPartition(bisnode$fast_grow_sales, p = 0.8, list = FALSE))
+data_train <- data[train_indices, ]
+data_holdout <- data[-train_indices, ]
+
+
+
+train_control <- trainControl(
+  method = "cv",
+  number = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummaryExtended,
+  savePredictions = TRUE
+)
+
+logit_model_vars <- list("X1" = X1, "X2" = X2, "X3" = X3, "X4" = X4, "X5" = X5)
+
+CV_RMSE_folds <- list()
+logit_models <- list()
+
+for (model_name in names(logit_model_vars)) {
+
+  features <- logit_model_vars[[model_name]]
+
+  set.seed(20230309)
+  glm_model <- train(
+    formula(paste0("default_f ~", paste0(features, collapse = " + "))), #!!
+    method = "glm",
+    data = data_train,
+    family = binomial,
+    trControl = train_control
+  )
+
+  logit_models[[model_name]] <- glm_model
+  # Calculate RMSE on test for each fold
+  CV_RMSE_folds[[model_name]] <- glm_model$resample[,c("Resample", "RMSE")]
+
+}
+
+# Logit lasso -----------------------------------------------------------
+
+lambda <- 10^seq(-1, -4, length = 10)
+grid <- expand.grid("alpha" = 1, lambda = lambda)
+
+set.seed(20230309)
+system.time({
+  logit_lasso_model <- train(
+    formula(paste0("default_f ~", paste0(logitvars, collapse = " + "))), # !!!
+    data = data_train,
+    method = "glmnet",
+    preProcess = c("center", "scale"),
+    family = "binomial",
+    trControl = train_control,
+    tuneGrid = grid,
+    na.action=na.exclude
+  )
+})
+
+tuned_logit_lasso_model <- logit_lasso_model$finalModel
+best_lambda <- logit_lasso_model$bestTune$lambda
+logit_models[["LASSO"]] <- logit_lasso_model
+lasso_coeffs <- as.matrix(coef(tuned_logit_lasso_model, best_lambda))
+
+CV_RMSE_folds[["LASSO"]] <- logit_lasso_model$resample[,c("Resample", "RMSE")]
 
 
 

@@ -27,6 +27,7 @@ library(readxl)
 library(gtsummary)
 library(caret)
 library(pROC)
+library(tufte)
 ```
 
 ```{css, echo=FALSE}
@@ -39,9 +40,10 @@ h1, h2, h3 , h4 {
 ```{r,include=FALSE,warning=FALSE,message=FALSE}
 #too large to push to github, have to download it 
 
-bisnode_raw <- read_csv("https://osf.io/3qyut/download") %>% data.table()
+bisnode_raw <- read_csv("https://osf.io/3qyut/download",show_col_types = FALSE) %>% data.table()
 
-bisnode_raw <- fread("C:/Users/BalintParragi/Desktop/CEU/5th semester/Machine learning for economists/cs_bisnode_panel.csv")
+#only used this command during work as it was faster
+#bisnode_raw <- fread("C:/Users/BalintParragi/Desktop/CEU/5th semester/Machine learning for economists/cs_bisnode_panel.csv")
 
 bisnode <- bisnode_raw %>% 
   select(-c(COGS, finished_prod, net_dom_sales, net_exp_sales, wages,D)) %>%
@@ -272,44 +274,44 @@ One last important part is to select the thresholds for these targets, above whi
 
 A winsorized measure could have been used, but my aim was to have reasonable and easy-to-interpret thresholds while have a sample size of fast-growing firms around 10% of the sample. The thresholds for sales and profits are generally larger than for labor, as it is much more feasible to increase these as employ more and more people on the short run. Also, 2-year change is assigned a higher threshold as continuous growth would imply that from the same starting point a higher growth can be achieved in 2 years compared to 1. But the 3-year moving average is again assigned a much lower threshold as it is very difficult to maintain such a large average growth over a 3-year span. One simple example: 1-year change in sales is linked to a threshold of `r round(log(1.75),3)`, which is $e^{0.56} \approx 1.75$, so it means a 75% increase in sales over 1 year. The same for the 2-year change is `r round(log(2),3)` ($e^{0.69} \approx 2.0$ - doubling sales), and for the moving average it is `r round(log(1.5),3)` (so $e^{0.4} \approx 1.5$), achieving 50% increase for three years on average). For the OECD measure, the sample size is extremely low (`r round(sum(bisnode_final$fg_labor_oecd,na.rm = T)/nrow(bisnode_final)*1000,digits=2)`$\text{\textperthousand}‰$), so it might not be a good measure in this dataset.
 
-```{r,echo=FALSE,fig.height=3.75,fig.width=6,warning=FALSE,message=FALSE}
+```{r,echo=FALSE,fig.align='center',fig.height=3.75,fig.width=6,warning=FALSE,message=FALSE}
 h1 <- ggplot(bisnode_final[d2_sales_mil_log>=0,],aes(x = d2_sales_mil_log))+
   geom_histogram()+
   geom_vline(xintercept = log(2),color="red")+
-  labs(title = "Distribution of the 2-year sales growth",x="",y="")+
+  labs(title = "Distr. of the 2-year\nsales growth",x="",y="")+
   theme_bw()+
   theme(axis.text = element_text(size=7,color="black"),
         axis.title = element_text(size=8,color = "black"),
-        plot.title = element_text(size =10,hjust =0.5))
+        plot.title = element_text(size =8,hjust =0.5))
 h2 <- ggplot(bisnode_final[d1_labor_avg_mod_log>=0,],aes(x = d1_labor_avg_mod_log))+
   geom_histogram()+
   geom_vline(xintercept = log(1.5),color="red")+
-  labs(title = "Distribution of the 1-year\n(modified) labor growth",x="",y="")+
+  labs(title = "Distr. of the 1-year\n(modified) labor growth",x="",y="")+
   theme_bw()+
   theme(axis.text = element_text(size=7,color="black"),
         axis.title = element_text(size=8,color = "black"),
-        plot.title = element_text(size =10,hjust =0.5))
+        plot.title = element_text(size =8,hjust =0.5))
 h3 <- ggplot(bisnode_final[profit_pl_chg_rm3>=0,],aes(x = profit_pl_chg_rm3))+
   geom_histogram()+
   geom_vline(xintercept = 0.1,color="red")+
-  labs(title = "Distribution of the 3-year\nmoving average of profits growth",x="",y="")+
+  labs(title = "Distr. of the 3-year\nmoving average\nof profits growth",x="",y="")+
   theme_bw()+
   theme(axis.text = element_text(size=7,color="black"),
         axis.title = element_text(size=8,color = "black"),
-        plot.title = element_text(size =10,hjust =0.5))
+        plot.title = element_text(size =8,hjust =0.5))
 h4 <- ggplot(bisnode_final[labor_mod_aagr3>=0&labor_mod_aagr3<4,],aes(x = labor_mod_aagr3))+
   geom_histogram()+
   geom_vline(xintercept = 0.2,color="red")+
-  labs(title = "Distribution of the 3-year\naverage annual growth rate of labor",x="",y="")+
+  labs(title = "Distr. of the 3-year\naverage ann. growth\nrate of labor",x="",y="")+
   theme_bw()+
   theme(axis.text = element_text(size=7,color="black"),
         axis.title = element_text(size=8,color = "black"),
-        plot.title = element_text(size =10,hjust =0.5))
+        plot.title = element_text(size =8,hjust =0.5))
 
 grid.arrange(h1,h2,h3,h4,nrow=2,ncol=2)
 
-h <- arrangeGrob(h1,h2,h3,h4,nrow=2,ncol=2)
-ggsave(file="histograms.png", h)
+#h <- arrangeGrob(h1,h2,h3,h4,nrow=2,ncol=2)
+#ggsave(file="histograms.png",h,height = 7,width = 3.5)
 ```
 
 Correlation table
@@ -326,7 +328,7 @@ df_cor[upper.tri(df_cor)] <- ""
 
 df_cor %>% kable(align = "c")%>% 
   kable_styling(latex_options = "hold_position",
-                full_width=FALSE,position = "center",font_size = 9)
+                full_width=FALSE,position = "center",font_size = 5)
 ```
 
 The correlation table of the targets suggests that the targets based on labor and modified labor are quite similar with higher positive correlation, and also sales and profits are quite similar within their respective group (1-year, 2-year difference; 3-year-mean). But across the different targets, there are not much similarity, which indicates that the selection of either one can potentially yield distinct results in the end. However, because of *completeness* and *reliability*, I select `Sales` as the basis of the analysis. Unfortunately, computationally and because of time constraints it is note possible to run the whole analysis with a different target, but I believe there might not be large differences along model selections (but can be different in terms of prediction accuracy and loss value).
@@ -334,25 +336,6 @@ The correlation table of the targets suggests that the targets based on labor an
 Among the covariates, one could be genuinely interested in `new`, as it is plausible that newly-founded firms grow the fastest (because of large marginal returns and not-yet diminishing marginal production).
 
 Also note that the sample period (firstly reduced to 2010-2015, then to 2012 with growth measures computed using data from 2013-2015) covers largely a boom period in the EU, but not everywhere, as there was the Eurozone recession in 2012, years after the GFC. Controlling for such time effects is out of the scope of this analysis.
-
-```{r, echo=FALSE}
-bisnode_raw %>% 
-  select(c(amort:curr_liab,origin,region_m,gender)) %>% 
-  tbl_summary(by=origin,
-                         type = list(region_m ~ "categorical",
-                                     gender ~ "categorical"),
-                         statistic = list(all_continuous() ~ "{mean} ({sd})",
-                     all_categorical() ~ "{p}%"),
-              digits = all_continuous() ~ 2,
-              label = list(gender~"Gender",region_m~"Region")
-              ) %>%
-  add_overall(last = T) %>% 
-  modify_spanning_header(c("stat_1", "stat_2","stat_3") ~ "Origin of firm") %>%
-  modify_header(list(label ~ "Feature")) %>% 
-  modify_footnote(all_stat_cols() ~ NA) %>% 
-  as_gt()
-```
-
 
 # Part I: probability prediction and model selection
 
@@ -379,11 +362,6 @@ The interactions included are between:
 bisnode_final <- bisnode_final %>% 
   mutate(fg_sales_d2_f = factor(fg_sales_d2, levels = c(0,1)) %>%
            recode(., `0` = 'no_fastgrowth', `1` = "fastgrowth"))
-
-variables <- c("sales_mil_log", "sales_mil_log_sq",qualityvars,
-               engvar,engvar2,engvar3,hr,firm) %>% unique()
-
-bisnode_final2 <- bisnode_final[complete.cases(bisnode_final[, ..variables])]
 
 rawvars <-  c("curr_assets", "curr_liab", "extra_exp", "extra_inc", "extra_profit_loss", "fixed_assets",
               "inc_bef_tax", "intang_assets", "inventories", "liq_assets", "material_exp", "personnel_exp",
@@ -426,6 +404,12 @@ logitvars <- c("sales_mil_log", "sales_mil_log_sq", engvar, engvar2, hr, firm, q
 
 # for RF (no interactions, no modified features)
 rfvars  <-  c("sales_mil", rawvars[rawvars != "sales"], hr, firm, qualityvars)
+
+#Final removal of NA-s as they destroy the Logistic part
+variables <- c("sales_mil_log", "sales_mil_log_sq",qualityvars,
+               engvar,engvar2,engvar3,hr,firm) %>% unique()
+
+bisnode_final2 <- bisnode_final[complete.cases(bisnode_final[, ..variables])]
 
 set.seed(20230310)
 train_indices <- as.integer(createDataPartition(bisnode_final2$fg_sales_d2,
@@ -540,7 +524,7 @@ logit_summary1 %>% kable(align = "c",digits = 3,
                 full_width=FALSE,position = "center",font_size = 9)
 ```
 
-$Model_4$ has the lowest RMSE and the highest AUC values, so this is a clear choice. LASSO interestingly does not perform very well. The features with non-zero coefficients are very educative with their sign and size:
+Some models are very close across the performance measures, but probably $Model_4$ is among the ones with the lowest RMSE and the highest AUC values, so this is the preferred Logit model. LASSO interestingly does not perform well. The features with non-zero coefficients are very educative with their sign and size:
 
 - Sales has a relatively large negative coefficient, supporting the theory of diminishing returns of growth/production
 - Inventories, quadratic profit (which is quite tricky as loss also becomes positive...), shareholder equity, some indicator categories all have a positive coefficient, as well as *new* (quite large: `r lasso_coeffs_nz[variable == "new"]$coefficient %>% round(3)`)
@@ -595,17 +579,15 @@ discrete_roc_plot <- ggplot(
 discrete_roc_plot
 ```
 
-```{r}
-RMSE(data_holdout$best_logit_no_loss_pred,data_holdout$fg_sales_d2)
-```
-
 The same is visible for a continuous set of thresholds.
 
 ```{r,echo=FALSE,fig.align='center',fig.height=3.75,fig.width=6}
 # continuous ROC on holdout with best model (Logit 4) 
 roc_obj_holdout <- roc(data_holdout$fg_sales_d2_f, data_holdout$best_logit_no_loss_pred)
 
-createRocPlot(roc_obj_holdout, "best_logit_no_loss_roc_plot_holdout")
+p1 <- createRocPlot(roc_obj_holdout, "best_logit_no_loss_roc_plot_holdout")
+p1
+#ggsave("AUC.png",p1,height = 6,width = 4)
 ```
 
 Looking at the next plot of the estimated and actual event probabilities, their relationship shows that it is well align on the 45-degree line until the event probability is high, because then it cannot predict them at all, by severely underestimating the probabilities.
@@ -698,6 +680,8 @@ CV_AUC[["rf_p"]] <- mean(CV_AUC_folds[["rf_p"]]$AUC)
 ## Defining the Loss-function
 
 The statistics question is that whether we want to minimize FN or FP instead. As a business related question, this can be translated to the following. What is more costly to me (as an analyst, competitor, investor, etc.): to incorrectly classify some non-fastgrowing firms as fast-growing (False Positive - FP), or to label some indeed fast-growing firms as non-fastgrowing (False Negative - FN). FP error can result in some insufficient or suboptimal financing or investing in non-fastgrowing firms, but those can be still growing at a level that creates reasonable returns (and of course, when these firms are actually financed, it can change the situation that they produce a better growth in the subsequent years). But if we make FN errors and miss out on fast-growing firms, then it can amount to high losses (lost possibility of high revenues) - and other competitors or investors can get it sooner, which also undermines our relative position. Even though FN errors do not consequently lead to financial loss and costs, in missed opportunity cost they can be much higher, so we want to take care of that. Thus, creating our Loss-function should weigh FN predictions more. The ratio depends on the market and our preferences, I set them accordingly (1-to-5 ratio), because of lost investment, stronger competitors (both the actual fast-growing firm and their new investors) and lower potential returns.
+
+$Cost\:function:\frac{FN}{FP} = 5$
 
 ```{r,echo=FALSE}
 FP=1
@@ -794,9 +778,7 @@ holdout_prediction <-
   factor(levels = c("no_fastgrowth", "fastgrowth"))
 cm_object3 <- confusionMatrix(holdout_prediction,data_holdout$fg_sales_d2_f)
 cm3 <- cm_object3$table
-cm3
 ```
-
 
 ```{r,include=FALSE}
 # Now use loss function and search for best thresholds and expected loss over folds
@@ -836,10 +818,12 @@ rf_summary <- data.frame("CV RMSE" = CV_RMSE[["rf_p"]],
 #                full_width=FALSE,position = "center",font_size = 9)
 ```
 
-For Fold-5, the best threshold is `r round(best_threshold$threshold,3)`, which is close the inverse cost ratio and to the sample frequency of fastgrowths.
+For Fold-5, the best threshold is `r round(best_treshold$threshold,3)`, which is close the inverse cost ratio and to the sample frequency of fastgrowths.
 
 ```{r,echo=FALSE,fig.align='center',fig.height=3.75,fig.width=6}
-createLossPlot(roc_obj, best_treshold, "rf_p_loss_plot")
+p2 <-createLossPlot(roc_obj, best_treshold, "rf_p_loss_plot")
+p2
+#ggsave("threshold_loss.png",p2,height = 6,width = 5.5)
 ```
 
 The next plot shows the ROC-curve's frontier, at the previously shown best threshold's position.
@@ -900,7 +884,7 @@ fn <- sum(data_holdout$rf_f_prediction_class == "no_fastgrowth" & data_holdout$f
 
 # Part III: Discussion
 
-```{r}
+```{r, echo=FALSE}
 nvars[["rf_p"]] <- length(rfvars)
 
 summary_results <- data.frame("Number of predictors" = unlist(nvars),
@@ -923,4 +907,31 @@ summary_results %>% kable(align = "c",digits = 3, row.names = TRUE,
 ```
 
 The results of the table above are striking and clear: again, our Random Forest model outperforms every other model specification, but Logit $Model_4$ is very close in terms of every metric (RMSE, AUC, Loss). Indeed, it has more than twice as many features which makes it more complicated, moreover it required model specification as well. But it is useful to see, that something based on our domain knowledge and theoretical reasoning can perform head-to-head with the black box-wise RF method.
+
+## External validity and performance
+
+$Model_4$ and the Random Forest gives very similar results on the holdout set. It again emphasizes that these are interchangeable.
+
+```{r,echo=FALSE}
+paste0("RMSE on holdout with Model 4: ",
+       round(RMSE(data_holdout$best_logit_with_loss_pred,data_holdout$fg_sales_d2),digits = 3))
+
+paste0("RMSE on holdout with Random Forest: ",
+       round(RMSE(data_holdout$rf_p_prediction,data_holdout$fg_sales_d2),digits = 3))
+```
+
+Confusion matrix with $Model_4$ on the holdout set
+
+```{r,echo=FALSE}
+# Confusion table on holdout with optimal threshold
+holdout_prediction <-
+  ifelse(data_holdout$best_logit_with_loss_pred < best_logit_optimal_treshold, "no_fastgrowth", "fastgrowth") %>%
+  factor(levels = c("no_fastgrowth", "fastgrowth"))
+cm_object3 <- confusionMatrix(holdout_prediction,data_holdout$fg_sales_d2_f)
+cm3 <- cm_object3$table
+cm3 %>%  kable(align = "c",digits = 3, row.names = TRUE) %>%
+   kable_styling(latex_options = "hold_position",
+                full_width=FALSE,position = "center",font_size = 9)
+```
+
 
